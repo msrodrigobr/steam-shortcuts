@@ -129,3 +129,9 @@ python -m venv .venv
 ```
 
 See `docs/acceptance-test.md` for the real Steam-client validation procedure.
+
+## Public releases
+
+Public releases are created from a published GitHub Release. The release workflow rebuilds the package, runs tests, linting, and type checks, then publishes with PyPI Trusted Publishing through GitHub OIDC. It intentionally contains no long-lived PyPI API token.
+
+Before the first release, configure a pending PyPI trusted publisher for project `steam-shortcuts`, GitHub owner `msrodrigobr`, repository `steam-shortcuts`, workflow `.github/workflows/publish.yml`, and the protected GitHub environment `pypi`. A pending publisher does not reserve a project name; publish promptly after configuration.

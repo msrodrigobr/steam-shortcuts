@@ -26,6 +26,11 @@ dependencies = [
     "vdf>=3.4,<4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/msrodrigobr/steam-shortcuts"
+Source = "https://github.com/msrodrigobr/steam-shortcuts"
+Issues = "https://github.com/msrodrigobr/steam-shortcuts/issues"
+
 [project.scripts]
 steam-shortcuts = "steam_shortcuts.cli:main"
 
