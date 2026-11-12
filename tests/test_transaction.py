@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -27,7 +27,7 @@ def test_atomic_write_creates_timestamped_backup_and_replaces_content(tmp_path: 
     backup = write_shortcuts_atomically(
         shortcuts_path,
         replacement,  # type: ignore[arg-type]
-        now=datetime(2026, 11, 12, 2, 0, tzinfo=UTC),
+        now=datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc),
     )
 
     assert backup == shortcuts_path.with_name("shortcuts.vdf.bak.20261112T020000Z")
@@ -51,7 +51,7 @@ def test_failed_atomic_replace_leaves_original_file_unchanged(
         write_shortcuts_atomically(
             shortcuts_path,
             {"shortcuts": {"0": {"appid": -1}}},  # type: ignore[arg-type]
-            now=datetime(2026, 11, 12, 2, 0, tzinfo=UTC),
+            now=datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc),
         )
 
     assert shortcuts_path.read_bytes() == original
@@ -67,7 +67,7 @@ def test_add_to_profile_writes_and_rereads_verified_shortcut(tmp_path: Path) -> 
         shortcuts_path,
         profile_id="123",
         request=ShortcutRequest(name="My Game", executable=executable),
-        now=datetime(2026, 11, 12, 2, 0, tzinfo=UTC),
+        now=datetime(2026, 11, 12, 2, 0, tzinfo=timezone.utc),
     )
 
     assert result.status == "added"
