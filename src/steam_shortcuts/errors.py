@@ -51,6 +51,24 @@ class ShortcutConflict(SteamShortcutsError):
     """Raised when an executable already belongs to a different shortcut."""
 
 
+class InvalidExecutable(SteamShortcutsError):
+    """Raised when a requested shortcut target cannot be launched as a file."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Invalid executable {path}: {reason}")
+
+
+class ShortcutVerificationFailed(SteamShortcutsError):
+    """Raised when a just-written shortcut cannot be read back unchanged."""
+
+    def __init__(self, path: Path, index: str) -> None:
+        self.path = path
+        self.index = index
+        super().__init__(f"Could not verify shortcut {index} after writing {path}")
+
+
 class InvalidShortcutFile(SteamShortcutsError):
     """Raised when shortcuts.vdf is corrupt or structurally unexpected."""
 
