@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 from .errors import ArchiveExecutableSelectionRequired, InvalidArchive
 from .models import ArchiveInspection
@@ -58,6 +60,66 @@ def inspect_archive(
     )
 
 
+def extract_archive(inspection: ArchiveInspection) -> Path:
+    """Safely extract an inspected archive and return its final executable path."""
+    destination = inspection.extract_to.expanduser().resolve(strict=False)
+    if not destination.parent.is_dir():
+        raise InvalidArchive(
+            inspection.archive,
+            f"destination parent is not a directory: {destination.parent}",
+        )
+    if _path_exists(destination):
+        raise InvalidArchive(inspection.archive, f"destination already exists: {destination}")
+
+    stage = destination.parent / f".{destination.name}.steam-shortcuts-{uuid4().hex}"
+    promoted = False
+    try:
+        stage.mkdir()
+        with tarfile.open(inspection.archive, mode="r:*") as tar:
+            members = tuple(tar.getmembers())
+            validated = _validated_members(inspection.archive, members)
+            if inspection.executable_relative not in validated.executable_candidates:
+                raise InvalidArchive(
+                    inspection.archive,
+                    "archive changed after inspection; selected executable is no longer present",
+                )
+            for member, relative_path in zip(
+                validated.members,
+                _member_paths(inspection.archive, validated.members),
+                strict=True,
+            ):
+                target = stage.joinpath(*relative_path.parts)
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = tar.extractfile(member)
+                if source is None:
+                    raise InvalidArchive(
+                        inspection.archive,
+                        f"could not read archive member: {member.name!r}",
+                    )
+                with source, target.open("xb") as destination_file:
+                    shutil.copyfileobj(source, destination_file)
+
+        staged_executable = stage.joinpath(*inspection.executable_relative.parts)
+        if not staged_executable.is_file():
+            raise InvalidArchive(
+                inspection.archive,
+                "selected executable was not extracted as a regular file",
+            )
+        if _path_exists(destination):
+            raise InvalidArchive(inspection.archive, f"destination already exists: {destination}")
+        stage.rename(destination)
+        promoted = True
+        return destination.joinpath(*inspection.executable_relative.parts)
+    except (tarfile.TarError, OSError) as error:
+        raise InvalidArchive(inspection.archive, "archive could not be extracted") from error
+    finally:
+        if not promoted:
+            shutil.rmtree(stage, ignore_errors=True)
+
+
 def _read_validated_archive(archive: Path) -> _ValidatedArchive:
     try:
         with tarfile.open(archive, mode="r:*") as tar:
@@ -67,16 +129,14 @@ def _read_validated_archive(archive: Path) -> _ValidatedArchive:
 
 
 def _validated_members(archive: Path, members: tuple[tarfile.TarInfo, ...]) -> _ValidatedArchive:
-    paths: list[PurePosixPath] = []
+    paths = _member_paths(archive, members)
     seen: set[PurePosixPath] = set()
-    for member in members:
-        path = _safe_member_path(archive, member.name)
+    for member, path in zip(members, paths, strict=True):
         if not (member.isdir() or member.isreg()):
             raise InvalidArchive(archive, f"unsupported member type: {member.name!r}")
         if path in seen:
             raise InvalidArchive(archive, f"duplicate member path: {member.name!r}")
         seen.add(path)
-        paths.append(path)
 
     candidates = tuple(
         sorted(
@@ -89,6 +149,14 @@ def _validated_members(archive: Path, members: tuple[tarfile.TarInfo, ...]) -> _
         )
     )
     return _ValidatedArchive(members=members, executable_candidates=candidates)
+
+
+def _member_paths(archive: Path, members: tuple[tarfile.TarInfo, ...]) -> tuple[PurePosixPath, ...]:
+    return tuple(_safe_member_path(archive, member.name) for member in members)
+
+
+def _path_exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
 
 
 def _safe_member_path(archive: Path, member_name: str) -> PurePosixPath:
