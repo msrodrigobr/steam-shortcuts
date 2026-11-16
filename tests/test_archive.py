@@ -39,7 +39,9 @@ def test_inspect_archive_automatically_uses_the_only_noninstaller_executable(
     inspection = inspect_archive(archive, extract_to=tmp_path / "Games" / "My Game")
 
     assert inspection.executable_relative == PurePosixPath("My Game/Game.EXE")
+    assert inspection.archive_root == PurePosixPath("My Game")
     assert inspection.selection == "single_candidate"
+    assert inspection.executable == tmp_path / "Games" / "My Game" / "Game.EXE"
     assert inspection.executable_candidates == (
         PurePosixPath("My Game/Game.EXE"),
         PurePosixPath("My Game/setup.exe"),
@@ -60,6 +62,20 @@ def test_inspect_archive_honors_an_explicit_relative_executable(tmp_path: Path) 
 
     assert inspection.executable_relative == PurePosixPath("My Game/bin/Launcher.exe")
     assert inspection.selection == "explicit"
+
+
+def test_inspect_archive_preserves_paths_when_a_regular_file_is_at_archive_root(
+    tmp_path: Path,
+) -> None:
+    archive = _write_tar(
+        tmp_path / "My Game.tar",
+        {"README.txt": b"read me", "My Game/Game.exe": b"game"},
+    )
+
+    inspection = inspect_archive(archive, extract_to=tmp_path / "Games" / "My Game")
+
+    assert inspection.archive_root is None
+    assert inspection.executable == tmp_path / "Games" / "My Game" / "My Game" / "Game.exe"
 
 
 def test_inspect_archive_requires_explicit_choice_for_two_game_executables(tmp_path: Path) -> None:
@@ -110,9 +126,9 @@ def test_extract_archive_promotes_a_complete_staging_directory(tmp_path: Path) -
 
     executable = extract_archive(inspection)
 
-    assert executable == tmp_path / "Games" / "Game" / "Game" / "Game.exe"
+    assert executable == tmp_path / "Games" / "Game" / "Game.exe"
     assert executable.read_bytes() == b"game"
-    assert executable.with_name("data.pak").read_bytes() == b"data"
+    assert (executable.parent / "data.pak").read_bytes() == b"data"
 
 
 def test_extract_archive_refuses_to_overwrite_a_destination(tmp_path: Path) -> None:

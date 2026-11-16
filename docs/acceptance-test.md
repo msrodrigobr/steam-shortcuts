@@ -86,7 +86,7 @@ Run this on the machine and local user account whose Steam library will receive 
      --dry-run --json
    ```
 
-   Expected JSON includes `dry_run: true`, `archive`, `extract_to`, `executable`, `executable_relative`, and `selection`. Verify the destination does not exist and `shortcuts.vdf` has no new backup or changed timestamp.
+   Expected JSON includes `dry_run: true`, `archive`, `extract_to`, `executable`, `executable_relative`, `archive_root`, and `selection`. If all archive members share one top-level folder, `archive_root` names it and the final executable path does not repeat that folder below `extract_to`. Verify the destination does not exist and `shortcuts.vdf` has no new backup or changed timestamp.
 
 3. With Steam still fully closed, run the same command without `--dry-run`:
 

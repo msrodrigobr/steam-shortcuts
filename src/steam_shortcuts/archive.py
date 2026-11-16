@@ -20,6 +20,7 @@ class _ValidatedArchive:
 
     members: tuple[tarfile.TarInfo, ...]
     executable_candidates: tuple[PurePosixPath, ...]
+    archive_root: PurePosixPath | None
 
 
 def inspect_archive(
@@ -44,6 +45,7 @@ def inspect_archive(
             executable_relative=selected,
             selection="explicit",
             executable_candidates=candidates,
+            archive_root=validated.archive_root,
         )
 
     eligible = tuple(
@@ -57,6 +59,7 @@ def inspect_archive(
         executable_relative=eligible[0],
         selection="single_candidate",
         executable_candidates=candidates,
+        archive_root=validated.archive_root,
     )
 
 
@@ -83,12 +86,17 @@ def extract_archive(inspection: ArchiveInspection) -> Path:
                     inspection.archive,
                     "archive changed after inspection; selected executable is no longer present",
                 )
+            if inspection.archive_root != validated.archive_root:
+                raise InvalidArchive(
+                    inspection.archive,
+                    "archive root changed after inspection",
+                )
             for member, relative_path in zip(
                 validated.members,
                 _member_paths(inspection.archive, validated.members),
                 strict=True,
             ):
-                target = stage.joinpath(*relative_path.parts)
+                target = stage.joinpath(*_install_relative(inspection, relative_path).parts)
                 if member.isdir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -102,7 +110,7 @@ def extract_archive(inspection: ArchiveInspection) -> Path:
                 with source, target.open("xb") as destination_file:
                     shutil.copyfileobj(source, destination_file)
 
-        staged_executable = stage.joinpath(*inspection.executable_relative.parts)
+        staged_executable = stage.joinpath(*inspection.install_relative.parts)
         if not staged_executable.is_file():
             raise InvalidArchive(
                 inspection.archive,
@@ -112,7 +120,7 @@ def extract_archive(inspection: ArchiveInspection) -> Path:
             raise InvalidArchive(inspection.archive, f"destination already exists: {destination}")
         stage.rename(destination)
         promoted = True
-        return destination.joinpath(*inspection.executable_relative.parts)
+        return destination.joinpath(*inspection.install_relative.parts)
     except (tarfile.TarError, OSError) as error:
         raise InvalidArchive(inspection.archive, "archive could not be extracted") from error
     finally:
@@ -148,11 +156,34 @@ def _validated_members(archive: Path, members: tuple[tarfile.TarInfo, ...]) -> _
             key=lambda path: str(path).casefold(),
         )
     )
-    return _ValidatedArchive(members=members, executable_candidates=candidates)
+    return _ValidatedArchive(
+        members=members,
+        executable_candidates=candidates,
+        archive_root=_archive_root(members, paths),
+    )
 
 
 def _member_paths(archive: Path, members: tuple[tarfile.TarInfo, ...]) -> tuple[PurePosixPath, ...]:
     return tuple(_safe_member_path(archive, member.name) for member in members)
+
+
+def _archive_root(
+    members: tuple[tarfile.TarInfo, ...],
+    paths: tuple[PurePosixPath, ...],
+) -> PurePosixPath | None:
+    roots = {path.parts[0] for path in paths}
+    if len(roots) != 1:
+        return None
+    for member, path in zip(members, paths, strict=True):
+        if len(path.parts) == 1 and not member.isdir():
+            return None
+    return PurePosixPath(roots.pop())
+
+
+def _install_relative(inspection: ArchiveInspection, path: PurePosixPath) -> PurePosixPath:
+    if inspection.archive_root is None:
+        return path
+    return path.relative_to(inspection.archive_root)
 
 
 def _path_exists(path: Path) -> bool:

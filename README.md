@@ -106,6 +106,8 @@ steam-shortcuts add \
 
 `--exe-relative` is relative to the archive root and always uses `/` separators. It is required when more than one non-installer `.exe` exists. If exactly one eligible `.exe` exists, the tool chooses it and reports `selection: "single_candidate"`; common installer names such as `setup.exe`, `install.exe`, and `unins*.exe` are never selected automatically. Ambiguous archives fail before extraction and print the candidate paths plus the `--exe-relative` recovery option.
 
+When every archive member is inside one top-level directory, archive mode removes that wrapper while extracting. For example, `Decktamer/Decktamer.exe` inside `Decktamer.tar`, with `--extract-to "$HOME/Games/Decktamer"`, becomes `$HOME/Games/Decktamer/Decktamer.exe`, not `$HOME/Games/Decktamer/Decktamer/Decktamer.exe`. JSON reports that decision as `archive_root: "Decktamer"`. Archives with root-level regular files keep their original layout and report `archive_root: null`.
+
 After Steam restarts, configure a Proton compatibility version in Steam if the selected executable is a Windows game. Registering a Windows executable does not magically make it a Linux game. Shocking, I know.
 
 ## Python API
@@ -169,6 +171,6 @@ See `docs/acceptance-test.md` for the real Steam-client validation procedure.
 
 ## Public releases
 
-Public releases are created by pushing a semantic version tag such as `v0.2.0`. The release workflow rebuilds the package, runs tests, linting, and type checks, then publishes with PyPI Trusted Publishing through GitHub OIDC. It intentionally contains no long-lived PyPI API token.
+Public releases are created by pushing a semantic version tag such as `v0.2.1`. The release workflow rebuilds the package, runs tests, linting, and type checks, then publishes with PyPI Trusted Publishing through GitHub OIDC. It intentionally contains no long-lived PyPI API token.
 
 Before tagging a new release, verify the PyPI Trusted Publisher matches project `steam-shortcuts`, GitHub owner `msrodrigobr`, repository `steam-shortcuts`, workflow filename `publish.yml`, and the protected GitHub environment `pypi`.

@@ -61,16 +61,31 @@ class ArchiveInspection:
     executable_relative: PurePosixPath
     selection: ArchiveSelection
     executable_candidates: tuple[PurePosixPath, ...]
+    archive_root: PurePosixPath | None = None
 
     def __post_init__(self) -> None:
         if self.executable_relative.is_absolute():
             raise ValueError("executable_relative must be relative")
         if ".." in self.executable_relative.parts:
             raise ValueError("executable_relative must not escape the archive root")
+        if self.archive_root is not None:
+            if self.archive_root.is_absolute() or len(self.archive_root.parts) != 1:
+                raise ValueError("archive_root must be one safe path component")
+            if self.archive_root.parts[0] in {"", ".", ".."}:
+                raise ValueError("archive_root must be one safe path component")
+            if self.executable_relative.parts[0] != self.archive_root.parts[0]:
+                raise ValueError("executable_relative must be beneath archive_root")
+
+    @property
+    def install_relative(self) -> PurePosixPath:
+        """Return the executable path relative to the final install directory."""
+        if self.archive_root is None:
+            return self.executable_relative
+        return self.executable_relative.relative_to(self.archive_root)
 
     @property
     def executable(self) -> Path:
-        return self.extract_to.joinpath(*self.executable_relative.parts)
+        return self.extract_to.joinpath(*self.install_relative.parts)
 
 
 def _reject_nul(field_name: str, value: str) -> None:

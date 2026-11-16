@@ -148,7 +148,7 @@ def test_archive_preview_selects_a_future_executable_without_extracting(
         steam_id="123",
     )
 
-    assert preview.inspection.executable == destination / "Game" / "Game.exe"
+    assert preview.inspection.executable == destination / "Game.exe"
     assert preview.plan.status == "added"
     assert not destination.exists()
 
@@ -214,8 +214,9 @@ def test_cli_archive_dry_run_returns_a_plan_without_extracting(
     assert payload["dry_run"] is True
     assert payload["archive"] == str(archive.resolve())
     assert payload["extract_to"] == str(destination)
-    assert payload["executable"] == str(destination / "Game" / "Game.exe")
+    assert payload["executable"] == str(destination / "Game.exe")
     assert payload["executable_relative"] == "Game/Game.exe"
+    assert payload["archive_root"] == "Game"
     assert payload["selection"] == "single_candidate"
     assert payload["backup_path"] is None
     assert shortcuts_path.read_bytes() == original
@@ -286,5 +287,5 @@ def test_cli_archive_add_extracts_and_reports_the_verified_shortcut(
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "added"
     assert payload["backup_path"].startswith(str(shortcuts_path) + ".bak.")
-    assert payload["executable"] == str(destination / "Game" / "Game.exe")
-    assert (destination / "Game" / "Game.exe").is_file()
+    assert payload["executable"] == str(destination / "Game.exe")
+    assert (destination / "Game.exe").is_file()

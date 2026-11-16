@@ -219,6 +219,7 @@ def _archive_payload(inspection: ArchiveInspection) -> dict[str, Any]:
         "extract_to": str(inspection.extract_to),
         "executable": str(inspection.executable),
         "executable_relative": str(inspection.executable_relative),
+        "archive_root": None if inspection.archive_root is None else str(inspection.archive_root),
         "selection": inspection.selection,
     }
 
