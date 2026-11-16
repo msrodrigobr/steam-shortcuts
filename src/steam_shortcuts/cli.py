@@ -6,12 +6,12 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import api
 from .errors import SteamShortcutsError
-from .models import ShortcutResult
+from .models import ArchiveInspection, ShortcutResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,7 +35,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_root_argument(add_parser)
     _add_profile_argument(add_parser)
     add_parser.add_argument("--name", required=True, help="Library display name.")
-    add_parser.add_argument("--exe", required=True, type=Path, help="Executable file to launch.")
+    target = add_parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--exe", type=Path, help="Executable file to launch.")
+    target.add_argument(
+        "--archive",
+        type=Path,
+        help="Tar archive containing an already-installed game directory.",
+    )
+    add_parser.add_argument(
+        "--extract-to",
+        type=Path,
+        help="New local install directory for --archive; defaults below the current directory.",
+    )
+    add_parser.add_argument(
+        "--exe-relative",
+        help="Archive-relative POSIX path to the game .exe when selection is ambiguous.",
+    )
     add_parser.add_argument(
         "--start-dir",
         type=Path,
@@ -108,6 +123,11 @@ def _run_list(arguments: argparse.Namespace) -> None:
 
 
 def _run_add(arguments: argparse.Namespace) -> None:
+    _validate_add_mode(arguments)
+    if arguments.archive is not None:
+        _run_add_archive(arguments)
+        return
+
     keyword_arguments = {
         "name": arguments.name,
         "executable": arguments.exe,
@@ -135,6 +155,53 @@ def _run_add(arguments: argparse.Namespace) -> None:
     _emit(payload, arguments.json, f"{payload['status']}: {arguments.name}")
 
 
+def _run_add_archive(arguments: argparse.Namespace) -> None:
+    if arguments.archive is None:  # pragma: no cover - guarded by _run_add
+        raise AssertionError("archive mode requires an archive")
+    keyword_arguments = {
+        "name": arguments.name,
+        "archive": arguments.archive,
+        "extract_to": arguments.extract_to,
+        "executable_relative": (
+            None if arguments.exe_relative is None else PurePosixPath(arguments.exe_relative)
+        ),
+        "launch_options": arguments.args,
+        "icon": arguments.icon,
+        "tags": arguments.tag,
+        "steam_root": arguments.steam_root,
+        "steam_id": arguments.steam_id,
+    }
+    if arguments.dry_run:
+        preview = api.preview_archive_shortcut(**keyword_arguments)
+        payload = {
+            "status": preview.plan.status,
+            "dry_run": True,
+            "profile_id": preview.profile.profile_id,
+            "shortcuts_path": str(preview.profile.shortcuts_path),
+            "shortcut_id": preview.plan.shortcut_id,
+            "run_game_url": preview.plan.run_game_url,
+            "backup_path": None,
+        }
+        payload.update(_archive_payload(preview.inspection))
+    else:
+        result = api.add_shortcut_from_archive(**keyword_arguments)
+        payload = _result_payload(result.shortcut)
+        payload.update(_archive_payload(result.inspection))
+    _emit(payload, arguments.json, f"{payload['status']}: {arguments.name}")
+
+
+def _validate_add_mode(arguments: argparse.Namespace) -> None:
+    if arguments.exe is not None and (
+        arguments.extract_to is not None or arguments.exe_relative is not None
+    ):
+        raise ValueError("--extract-to and --exe-relative require --archive")
+    if arguments.archive is not None and arguments.start_dir is not None:
+        raise ValueError(
+            "--start-dir cannot be used with --archive; archive mode uses the selected "
+            "executable's directory"
+        )
+
+
 def _result_payload(result: ShortcutResult) -> dict[str, Any]:
     return {
         "status": result.status,
@@ -143,6 +210,16 @@ def _result_payload(result: ShortcutResult) -> dict[str, Any]:
         "shortcut_id": result.shortcut_id,
         "run_game_url": result.run_game_url,
         "backup_path": None if result.backup_path is None else str(result.backup_path),
+    }
+
+
+def _archive_payload(inspection: ArchiveInspection) -> dict[str, Any]:
+    return {
+        "archive": str(inspection.archive),
+        "extract_to": str(inspection.extract_to),
+        "executable": str(inspection.executable),
+        "executable_relative": str(inspection.executable_relative),
+        "selection": inspection.selection,
     }
 
 

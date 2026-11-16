@@ -176,3 +176,57 @@ def test_add_shortcut_from_archive_extracts_then_writes_the_final_executable(
     stored = load_shortcuts(shortcuts_path)["shortcuts"]["0"]
     assert stored["Exe"] == f'"{result.inspection.executable}"'
     assert stored["StartDir"] == f'"{result.inspection.executable.parent}"'
+
+
+def test_cli_archive_dry_run_returns_a_plan_without_extracting(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    steam_root = tmp_path / "Steam"
+    shortcuts_path = _steam_profile(steam_root)
+    archive = _write_tar(tmp_path / "Game.tar", {"Game/Game.exe": b"game"})
+    destination = tmp_path / "Deck" / "Game"
+    destination.parent.mkdir()
+    original = shortcuts_path.read_bytes()
+    monkeypatch.setattr(api, "ensure_steam_not_running", lambda: None)
+
+    assert (
+        main(
+            [
+                "add",
+                "--steam-root",
+                str(steam_root),
+                "--steam-id",
+                "123",
+                "--name",
+                "Game",
+                "--archive",
+                str(archive),
+                "--extract-to",
+                str(destination),
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["archive"] == str(archive.resolve())
+    assert payload["extract_to"] == str(destination)
+    assert payload["executable"] == str(destination / "Game" / "Game.exe")
+    assert payload["executable_relative"] == "Game/Game.exe"
+    assert payload["selection"] == "single_candidate"
+    assert payload["backup_path"] is None
+    assert shortcuts_path.read_bytes() == original
+    assert not destination.exists()
+
+
+def test_cli_rejects_combining_direct_and_archive_targets(tmp_path: Path, capsys) -> None:
+    executable = tmp_path / "game.exe"
+    executable.touch()
+    archive = _write_tar(tmp_path / "Game.tar", {"Game/Game.exe": b"game"})
+
+    assert main(["add", "--name", "Game", "--exe", str(executable), "--archive", str(archive)]) == 2
+
+    assert "not allowed with argument" in capsys.readouterr().err
