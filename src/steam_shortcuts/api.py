@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from .archive import extract_archive, inspect_archive
 from .discovery import discover_steam_root, list_profile_ids, select_profile
-from .models import ShortcutRequest, ShortcutResult, SteamProfile
+from .errors import InvalidArchive
+from .models import ArchiveInspection, ShortcutRequest, ShortcutResult, SteamProfile
 from .process import ensure_steam_not_running
 from .service import (
     ShortcutAdditionPlan,
@@ -16,6 +18,8 @@ from .service import (
     to_unsigned_int32,
 )
 from .vdf_store import VdfMap, VdfValue, load_shortcuts
+
+_ARCHIVE_SUFFIXES = (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tar")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +37,24 @@ class ShortcutPreview:
     steam_root: Path
     profile: SteamProfile
     plan: ShortcutAdditionPlan
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveShortcutPreview:
+    """A non-mutating archive extraction and shortcut-addition plan."""
+
+    steam_root: Path
+    profile: SteamProfile
+    inspection: ArchiveInspection
+    plan: ShortcutAdditionPlan
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveShortcutResult:
+    """A completed archive extraction and verified shortcut mutation."""
+
+    inspection: ArchiveInspection
+    shortcut: ShortcutResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +154,109 @@ def add_shortcut(
         preview.profile.profile_id,
         request,
     )
+
+
+def preview_archive_shortcut(
+    *,
+    name: str,
+    archive: Path,
+    extract_to: Path | None = None,
+    executable_relative: PurePosixPath | None = None,
+    launch_options: str = "",
+    icon: Path | None = None,
+    tags: Iterable[str] = (),
+    steam_root: Path | None = None,
+    steam_id: str | None = None,
+) -> ArchiveShortcutPreview:
+    """Plan a tar extraction and shortcut addition without changing local files."""
+    installation = detect_steam(steam_root)
+    ensure_steam_not_running()
+    profile = select_profile(installation.steam_root, steam_id)
+    destination = _resolve_archive_destination(archive, extract_to)
+    inspection = inspect_archive(
+        archive,
+        extract_to=destination,
+        executable_relative=executable_relative,
+    )
+    request = ShortcutRequest(
+        name=name,
+        executable=inspection.executable,
+        launch_options=launch_options,
+        icon=icon,
+        tags=tuple(tags),
+    )
+    plan = plan_shortcut_addition(
+        load_shortcuts(profile.shortcuts_path),
+        request,
+        require_existing_executable=False,
+    )
+    return ArchiveShortcutPreview(
+        steam_root=installation.steam_root,
+        profile=profile,
+        inspection=inspection,
+        plan=plan,
+    )
+
+
+def add_shortcut_from_archive(
+    *,
+    name: str,
+    archive: Path,
+    extract_to: Path | None = None,
+    executable_relative: PurePosixPath | None = None,
+    launch_options: str = "",
+    icon: Path | None = None,
+    tags: Iterable[str] = (),
+    steam_root: Path | None = None,
+    steam_id: str | None = None,
+) -> ArchiveShortcutResult:
+    """Extract a tarred game directory and register its selected executable."""
+    tag_values = tuple(tags)
+    preview = preview_archive_shortcut(
+        name=name,
+        archive=archive,
+        extract_to=extract_to,
+        executable_relative=executable_relative,
+        launch_options=launch_options,
+        icon=icon,
+        tags=tag_values,
+        steam_root=steam_root,
+        steam_id=steam_id,
+    )
+    extract_archive(preview.inspection)
+    ensure_steam_not_running()
+    request = ShortcutRequest(
+        name=name,
+        executable=preview.inspection.executable,
+        launch_options=launch_options,
+        icon=icon,
+        tags=tag_values,
+    )
+    shortcut = add_shortcut_to_profile(
+        preview.profile.shortcuts_path,
+        preview.profile.profile_id,
+        request,
+    )
+    return ArchiveShortcutResult(inspection=preview.inspection, shortcut=shortcut)
+
+
+def _resolve_archive_destination(archive: Path, extract_to: Path | None) -> Path:
+    destination = extract_to if extract_to is not None else Path.cwd() / _archive_stem(archive)
+    resolved = destination.expanduser().resolve(strict=False)
+    if not resolved.parent.is_dir():
+        raise InvalidArchive(archive, f"destination parent is not a directory: {resolved.parent}")
+    if resolved.exists() or resolved.is_symlink():
+        raise InvalidArchive(archive, f"destination already exists: {resolved}")
+    return resolved
+
+
+def _archive_stem(archive: Path) -> str:
+    name = archive.name
+    lowered = name.casefold()
+    for suffix in _ARCHIVE_SUFFIXES:
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)]
+    return archive.stem
 
 
 def _shortcut_map(root: VdfMap) -> dict[str, VdfValue]:

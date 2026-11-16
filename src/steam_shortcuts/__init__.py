@@ -1,7 +1,9 @@
 """Portable, safe management of local Steam non-Steam shortcuts."""
 
-from .api import add_shortcut
+from .api import add_shortcut, add_shortcut_from_archive
 from .errors import (
+    ArchiveExecutableSelectionRequired,
+    InvalidArchive,
     InvalidExecutable,
     InvalidShortcutFile,
     ProfileNotFound,
@@ -11,12 +13,16 @@ from .errors import (
     SteamNotFound,
     SteamRunning,
 )
-from .models import ShortcutRequest, ShortcutResult, SteamProfile
+from .models import ArchiveInspection, ShortcutRequest, ShortcutResult, SteamProfile
 
 __version__ = "0.1.0"
 
 __all__ = [
     "add_shortcut",
+    "add_shortcut_from_archive",
+    "ArchiveExecutableSelectionRequired",
+    "ArchiveInspection",
+    "InvalidArchive",
     "InvalidShortcutFile",
     "InvalidExecutable",
     "ProfileNotFound",
