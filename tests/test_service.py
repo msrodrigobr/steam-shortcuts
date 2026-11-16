@@ -119,3 +119,17 @@ def test_new_shortcut_uses_next_highest_numeric_index(tmp_path: Path) -> None:
     )
 
     assert plan.index == "11"
+
+
+def test_plan_can_check_duplicate_vdf_entries_for_a_future_archive_executable(
+    tmp_path: Path,
+) -> None:
+    future_executable = tmp_path / "Games" / "Game" / "Game.exe"
+
+    plan = plan_shortcut_addition(
+        {"shortcuts": {}},
+        _request(future_executable),
+        require_existing_executable=False,
+    )
+
+    assert plan.status == "added"

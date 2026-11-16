@@ -35,9 +35,15 @@ def shortcut_app_id(quoted_executable: str, app_name: str) -> int:
     return checksum | _UINT32_SIGN_BIT
 
 
-def plan_shortcut_addition(root: VdfMap, request: ShortcutRequest) -> ShortcutAdditionPlan:
+def plan_shortcut_addition(
+    root: VdfMap,
+    request: ShortcutRequest,
+    *,
+    require_existing_executable: bool = True,
+) -> ShortcutAdditionPlan:
     """Build an idempotent shortcut addition without mutating ``root``."""
-    _validate_executable(request.executable)
+    if require_existing_executable:
+        _validate_executable(request.executable)
     executable_key = _path_key(request.executable)
     shortcuts = _shortcut_map(root)
 
@@ -209,7 +215,7 @@ def _stored_app_id(entry: dict[str, VdfValue]) -> int | None:
 
 
 def _path_key(path: Path) -> str:
-    resolved = path.resolve(strict=True)
+    resolved = path.resolve(strict=False)
     return os.path.normcase(str(resolved)) if os.name == "nt" else str(resolved)
 
 
