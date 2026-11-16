@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 class SteamShortcutsError(Exception):
@@ -58,6 +58,28 @@ class InvalidExecutable(SteamShortcutsError):
         self.path = path
         self.reason = reason
         super().__init__(f"Invalid executable {path}: {reason}")
+
+
+class InvalidArchive(SteamShortcutsError):
+    """Raised when an archive is unsafe, unreadable, or unsupported."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Invalid archive {path}: {reason}")
+
+
+class ArchiveExecutableSelectionRequired(SteamShortcutsError):
+    """Raised when archive metadata cannot identify one launch executable."""
+
+    def __init__(self, archive: Path, candidates: Iterable[PurePosixPath]) -> None:
+        self.archive = archive
+        self.candidates = tuple(candidates)
+        listed = ", ".join(str(candidate) for candidate in self.candidates) or "(none found)"
+        super().__init__(
+            f"Could not select a game executable from archive {archive}. "
+            f"Candidates: {listed}. Re-run with --exe-relative <archive-relative-path>."
+        )
 
 
 class ShortcutVerificationFailed(SteamShortcutsError):

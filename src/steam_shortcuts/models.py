@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 ShortcutStatus = Literal["added", "already_exists"]
+ArchiveSelection = Literal["explicit", "single_candidate"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,27 @@ class ShortcutResult:
     shortcut_id: int
     run_game_url: str
     backup_path: Path | None
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveInspection:
+    """A validated tar archive and the executable selected within it."""
+
+    archive: Path
+    extract_to: Path
+    executable_relative: PurePosixPath
+    selection: ArchiveSelection
+    executable_candidates: tuple[PurePosixPath, ...]
+
+    def __post_init__(self) -> None:
+        if self.executable_relative.is_absolute():
+            raise ValueError("executable_relative must be relative")
+        if ".." in self.executable_relative.parts:
+            raise ValueError("executable_relative must not escape the archive root")
+
+    @property
+    def executable(self) -> Path:
+        return self.extract_to.joinpath(*self.executable_relative.parts)
 
 
 def _reject_nul(field_name: str, value: str) -> None:
