@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "steam-shortcuts"
-version = "0.1.0"
+version = "0.2.0"
 description = "Safely add non-Steam shortcuts through a Python API and CLI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,6 +40,7 @@ dev = [
     "mypy>=1.0,<3",
     "pytest>=8,<10",
     "ruff>=0.10,<1",
+    "twine>=6,<7",
     "types-psutil>=7,<8",
 ]
 

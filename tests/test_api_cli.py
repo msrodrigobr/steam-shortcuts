@@ -230,3 +230,61 @@ def test_cli_rejects_combining_direct_and_archive_targets(tmp_path: Path, capsys
     assert main(["add", "--name", "Game", "--exe", str(executable), "--archive", str(archive)]) == 2
 
     assert "not allowed with argument" in capsys.readouterr().err
+
+
+def test_archive_preview_defaults_extraction_below_the_current_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    steam_root = tmp_path / "Steam"
+    _steam_profile(steam_root)
+    archive = _write_tar(tmp_path / "Game.tar", {"Game/Game.exe": b"game"})
+    local_games = tmp_path / "LocalGames"
+    local_games.mkdir()
+    monkeypatch.chdir(local_games)
+    monkeypatch.setattr(api, "ensure_steam_not_running", lambda: None)
+
+    preview = api.preview_archive_shortcut(
+        name="Game",
+        archive=archive,
+        steam_root=steam_root,
+        steam_id="123",
+    )
+
+    assert preview.inspection.extract_to == local_games / "Game"
+
+
+def test_cli_archive_add_extracts_and_reports_the_verified_shortcut(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    steam_root = tmp_path / "Steam"
+    shortcuts_path = _steam_profile(steam_root)
+    archive = _write_tar(tmp_path / "Game.tar", {"Game/Game.exe": b"game"})
+    destination = tmp_path / "Deck" / "Game"
+    destination.parent.mkdir()
+    monkeypatch.setattr(api, "ensure_steam_not_running", lambda: None)
+
+    assert (
+        main(
+            [
+                "add",
+                "--steam-root",
+                str(steam_root),
+                "--steam-id",
+                "123",
+                "--name",
+                "Game",
+                "--archive",
+                str(archive),
+                "--extract-to",
+                str(destination),
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "added"
+    assert payload["backup_path"].startswith(str(shortcuts_path) + ".bak.")
+    assert payload["executable"] == str(destination / "Game" / "Game.exe")
+    assert (destination / "Game" / "Game.exe").is_file()

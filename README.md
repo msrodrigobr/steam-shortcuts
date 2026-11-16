@@ -11,24 +11,19 @@ Steam must be fully closed before using `add`. The tool refuses to write if it d
 - Windows is the primary acceptance target for Windows executable paths.
 - Steam discovery supports Windows registry/default locations, common Linux locations (including Flatpak), and macOS.
 - If a Steam root has multiple numeric profiles, `--steam-id` is required. The tool never guesses an account.
-- The first release intentionally does not add artwork, modify Steam Cloud or `localconfig.vdf`, restart Steam, launch games, or drive the Steam UI.
+- Archive mode safely supports already-installed game directories in `.tar`, `.tar.gz` / `.tgz`, `.tar.bz2`, and `.tar.xz` files.
+- The tool does not add artwork, modify Steam Cloud or `localconfig.vdf`, restart Steam, launch games, configure Proton, or drive the Steam UI.
 
 ## Install
 
-Until this distribution is published, install a checkout into an isolated `pipx` environment:
-
-```text
-pipx install .
-steam-shortcuts --help
-```
-
-After a published release exists, the equivalent will be:
+Install the CLI into an isolated `pipx` environment:
 
 ```text
 pipx install steam-shortcuts
+steam-shortcuts --help
 ```
 
-After a published release exists, use it as a library in another Python project:
+Use it as a library in another Python project:
 
 ```text
 python -m pip install steam-shortcuts
@@ -80,11 +75,44 @@ A successful JSON result includes `status`, `profile_id`, `shortcuts_path`, a 32
 
 Restart Steam normally after a successful add so it reloads `shortcuts.vdf`; then the item should appear in the library.
 
+## Archive mode (Steam Deck / local installs)
+
+Archive mode is for a tar containing an already-installed game directory. It never runs `setup.exe`, does not unpack FreeArc `.bin` installer payloads, and does not execute Wine, Proton, `7z`, or another installer. Supported inputs are standard tar formats: `.tar`, `.tar.gz` / `.tgz`, `.tar.bz2`, and `.tar.xz`.
+
+Use a new directory on the Deck's local storage as the extraction destination. Start with a dry run; it inspects archive metadata and Steam's VDF but does not extract files or write a shortcut:
+
+```text
+cd "$HOME/Games"
+steam-shortcuts add \
+  --name "My Game" \
+  --archive "$HOME/media-nas/My Game.tar" \
+  --extract-to "$HOME/Games/My Game" \
+  --exe-relative "My Game/Game.exe" \
+  --dry-run --json
+```
+
+Run the same command without `--dry-run` after reviewing the JSON plan:
+
+```text
+steam-shortcuts add \
+  --name "My Game" \
+  --archive "$HOME/media-nas/My Game.tar" \
+  --extract-to "$HOME/Games/My Game" \
+  --exe-relative "My Game/Game.exe" \
+  --json
+```
+
+`--extract-to` must not already exist; the archive is extracted through a private staging directory and is never merged over an existing game. When omitted, the destination defaults to `<current-working-directory>/<archive-stem>`, so running the command from `~/Games` with `Game.tar` extracts to `~/Games/Game`. Use an explicit local destination when the archive itself lives on a NAS.
+
+`--exe-relative` is relative to the archive root and always uses `/` separators. It is required when more than one non-installer `.exe` exists. If exactly one eligible `.exe` exists, the tool chooses it and reports `selection: "single_candidate"`; common installer names such as `setup.exe`, `install.exe`, and `unins*.exe` are never selected automatically. Ambiguous archives fail before extraction and print the candidate paths plus the `--exe-relative` recovery option.
+
+After Steam restarts, configure a Proton compatibility version in Steam if the selected executable is a Windows game. Registering a Windows executable does not magically make it a Linux game. Shocking, I know.
+
 ## Python API
 
 ```python
-from pathlib import Path
-from steam_shortcuts import add_shortcut
+from pathlib import Path, PurePosixPath
+from steam_shortcuts import add_shortcut, add_shortcut_from_archive
 
 result = add_shortcut(
     name="My Game",
@@ -96,6 +124,15 @@ result = add_shortcut(
 )
 
 print(result.status, result.run_game_url, result.backup_path)
+
+archive_result = add_shortcut_from_archive(
+    name="My Game",
+    archive=Path("/home/deck/media-nas/My Game.tar"),
+    extract_to=Path("/home/deck/Games/My Game"),
+    executable_relative=PurePosixPath("My Game/Game.exe"),
+    steam_id="123456789",
+)
+print(archive_result.shortcut.status, archive_result.inspection.executable)
 ```
 
 The API and CLI run on the same local user account that owns the Steam profile. They do not communicate with a Steam account, web API, or remote computer.
@@ -132,6 +169,6 @@ See `docs/acceptance-test.md` for the real Steam-client validation procedure.
 
 ## Public releases
 
-Public releases are created by pushing a semantic version tag such as `v0.1.0`. The release workflow rebuilds the package, runs tests, linting, and type checks, then publishes with PyPI Trusted Publishing through GitHub OIDC. It intentionally contains no long-lived PyPI API token.
+Public releases are created by pushing a semantic version tag such as `v0.2.0`. The release workflow rebuilds the package, runs tests, linting, and type checks, then publishes with PyPI Trusted Publishing through GitHub OIDC. It intentionally contains no long-lived PyPI API token.
 
-Before the first release, configure a pending PyPI trusted publisher for project `steam-shortcuts`, GitHub owner `msrodrigobr`, repository `steam-shortcuts`, workflow filename `publish.yml`, and the protected GitHub environment `pypi`. A pending publisher does not reserve a project name; publish promptly after configuration.
+Before tagging a new release, verify the PyPI Trusted Publisher matches project `steam-shortcuts`, GitHub owner `msrodrigobr`, repository `steam-shortcuts`, workflow filename `publish.yml`, and the protected GitHub environment `pypi`.

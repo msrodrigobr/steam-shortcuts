@@ -1,15 +1,17 @@
 # Real Steam-client acceptance test
 
-Run this on a Windows machine where Steam is installed for the same Windows user that will use the shortcut. Automated unit tests only prove that we wrote a valid binary VDF according to the tested codec; Steam itself remains the gloriously opaque final judge.
+Run this on the machine and local user account whose Steam library will receive the shortcut. Automated tests prove the package's VDF and archive behavior; Steam itself remains the gloriously opaque final judge.
 
-## Preconditions
+## Direct executable acceptance
 
-1. Use a harmless, locally present target such as `C:\Windows\System32\notepad.exe`.
-2. Do not use a real game as the first test.
+### Preconditions
+
+1. Use a harmless locally present target such as `C:\Windows\System32\notepad.exe`.
+2. Do not use a real game as the first direct-mode test.
 3. Fully exit Steam, including its tray process.
-4. Record the Steam version and Windows version in the test notes.
+4. Record the Steam version and OS version in the test notes.
 
-## Procedure
+### Procedure
 
 1. Identify the profile:
 
@@ -47,8 +49,67 @@ Run this on a Windows machine where Steam is installed for the same Windows user
 
 6. Remove the disposable shortcut manually in Steam, or restore the backup with Steam fully closed. Preserve the command output and redact any profile ID before filing it as project evidence.
 
+## Steam Deck archive acceptance
+
+### Preconditions
+
+1. Use a legally owned tar containing an already-installed game directory, not an installer payload.
+2. Mount or copy the source archive so the Deck can read it.
+3. Choose a new destination on the Deck's local storage, for example `$HOME/Games/Archive Acceptance`. It must not already exist.
+4. Fully exit Steam in both Gaming Mode and Desktop Mode.
+5. Identify the Deck profile with `steam-shortcuts detect --json`; specify `--steam-id` if more than one numeric profile is present.
+
+### Procedure
+
+1. Confirm an ambiguous archive is safe. Use an archive that contains two non-installer `.exe` files, or make a disposable fixture with that shape. Run archive dry-run without `--exe-relative`:
+
+   ```text
+   steam-shortcuts add \
+     --steam-id <profile-id> \
+     --name "archive ambiguity acceptance" \
+     --archive "$HOME/media-nas/Ambiguous Game.tar" \
+     --extract-to "$HOME/Games/Archive Ambiguity" \
+     --dry-run --json
+   ```
+
+   Expected: exit code 2; stderr lists candidate archive-relative paths and `--exe-relative`; neither the destination nor a VDF backup exists.
+
+2. Confirm dry-run makes no local or VDF mutation:
+
+   ```text
+   steam-shortcuts add \
+     --steam-id <profile-id> \
+     --name "archive acceptance test" \
+     --archive "$HOME/media-nas/My Game.tar" \
+     --extract-to "$HOME/Games/Archive Acceptance" \
+     --exe-relative "My Game/Game.exe" \
+     --dry-run --json
+   ```
+
+   Expected JSON includes `dry_run: true`, `archive`, `extract_to`, `executable`, `executable_relative`, and `selection`. Verify the destination does not exist and `shortcuts.vdf` has no new backup or changed timestamp.
+
+3. With Steam still fully closed, run the same command without `--dry-run`:
+
+   ```text
+   steam-shortcuts add \
+     --steam-id <profile-id> \
+     --name "archive acceptance test" \
+     --archive "$HOME/media-nas/My Game.tar" \
+     --extract-to "$HOME/Games/Archive Acceptance" \
+     --exe-relative "My Game/Game.exe" \
+     --json
+   ```
+
+   Expected: `status: added`, a valid VDF backup path, and an executable path under `$HOME/Games/Archive Acceptance`. Confirm the archive source was not modified.
+
+4. Start Steam normally. Confirm the shortcut appears with the requested display name. If it launches a Windows executable, select a Proton compatibility version in Steam, then launch manually and record the result.
+
+5. Preserve the JSON output and exact archive-relative executable selection. Do not delete the VDF backup until the real Steam client result is recorded.
+
 ## Failure handling
 
 - If Steam is running when `add` is attempted, the tool must refuse to write. Do not workaround this by killing processes blindly.
-- If the shortcut is absent after restart, keep the current VDF, restore the timestamped backup, and record the current Steam version plus the JSON output.
-- If Steam changes the file format or sanitizes fields unexpectedly, add a regression fixture/test before changing the library behavior.
+- If archive selection is ambiguous, choose one displayed path and rerun with `--exe-relative`; do not expect the package to make a confident guess from filenames.
+- If archive extraction fails, preserve the source archive and error. The package must remove only its own `.steam-shortcuts-*` staging directory and must not overwrite an existing destination.
+- If Steam rejects or does not show an added shortcut, keep the current VDF, restore the timestamped backup, and record the Steam version plus JSON output.
+- If Steam changes the file format or sanitizes fields unexpectedly, add a regression fixture/test before changing library behavior.
