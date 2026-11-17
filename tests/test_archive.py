@@ -100,6 +100,14 @@ def test_inspect_archive_rejects_parent_directory_member(tmp_path: Path) -> None
         inspect_archive(archive, extract_to=tmp_path / "out")
 
 
+@pytest.mark.parametrize("member", ["D:/escape.exe", "game/D:escape.exe"])
+def test_inspect_archive_rejects_windows_drive_paths(tmp_path: Path, member: str) -> None:
+    archive = _write_tar(tmp_path / "unsafe-drive.tar", {member: b"nope", "data.txt": b"data"})
+
+    with pytest.raises(InvalidArchive, match="unsafe member path"):
+        inspect_archive(archive, extract_to=tmp_path / "out")
+
+
 def test_inspect_archive_rejects_symbolic_link_members(tmp_path: Path) -> None:
     archive = _write_symlink_tar(tmp_path / "unsafe-link.tar")
 

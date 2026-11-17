@@ -81,12 +81,14 @@ def user_config_dir(
     environ: Mapping[str, str] | None = None,
     home: Path | None = None,
     platform_name: str | None = None,
+    os_name: str | None = None,
 ) -> Path:
     """Return the standard per-user configuration directory for this package."""
     environment = os.environ if environ is None else environ
     user_home = home if home is not None else Path.home()
     system = platform_name if platform_name is not None else sys.platform
-    if os.name == "nt":
+    operating_system = os_name if os_name is not None else os.name
+    if operating_system == "nt":
         base = Path(environment.get("APPDATA", str(user_home / "AppData" / "Roaming")))
     elif system == "darwin":
         base = user_home / "Library" / "Application Support"

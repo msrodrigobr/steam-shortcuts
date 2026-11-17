@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import tarfile
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from uuid import uuid4
 
 from .errors import ArchiveExecutableSelectionRequired, InvalidArchive
@@ -198,6 +198,7 @@ def _safe_member_path(archive: Path, member_name: str) -> PurePosixPath:
         or path.is_absolute()
         or ".." in path.parts
         or "\\" in member_name
+        or any(PureWindowsPath(part).drive for part in path.parts)
     ):
         raise InvalidArchive(archive, f"unsafe member path: {member_name!r}")
     return path

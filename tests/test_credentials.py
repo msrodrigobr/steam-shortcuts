@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
 import pytest
 
-from steam_shortcuts.credentials import configure_steamgriddb_api_key, resolve_steamgriddb_api_key
+from steam_shortcuts.credentials import (
+    configure_steamgriddb_api_key,
+    resolve_steamgriddb_api_key,
+    user_config_dir,
+)
 from steam_shortcuts.errors import SteamGridDbApiKeyMissing
 
 
@@ -26,7 +31,8 @@ def test_resolve_steamgriddb_api_key_prompts_once_and_saves_a_private_credential
     assert key == "saved-secret"
     assert len(prompts) == 1
     assert json.loads(credential_path.read_text()) == {"steamgriddb_api_key": "saved-secret"}
-    assert stat.S_IMODE(credential_path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(credential_path.stat().st_mode) == 0o600
 
 
 def test_resolve_steamgriddb_api_key_reuses_saved_credential_without_prompting(
@@ -80,3 +86,30 @@ def test_configure_steamgriddb_api_key_replaces_a_saved_credential(tmp_path: Pat
 
     assert saved_path == credential_path
     assert json.loads(credential_path.read_text()) == {"steamgriddb_api_key": "replacement-secret"}
+
+
+def test_user_config_dir_uses_appdata_on_windows(tmp_path: Path) -> None:
+    assert user_config_dir(
+        environ={"APPDATA": r"C:\Users\Rodrigo\AppData\Roaming"},
+        home=tmp_path,
+        platform_name="win32",
+        os_name="nt",
+    ) == Path(r"C:\Users\Rodrigo\AppData\Roaming") / "steam-shortcuts"
+
+
+def test_user_config_dir_uses_xdg_config_home_on_linux(tmp_path: Path) -> None:
+    assert user_config_dir(
+        environ={"XDG_CONFIG_HOME": str(tmp_path / "xdg")},
+        home=tmp_path,
+        platform_name="linux",
+        os_name="posix",
+    ) == tmp_path / "xdg" / "steam-shortcuts"
+
+
+def test_user_config_dir_uses_application_support_on_macos(tmp_path: Path) -> None:
+    assert user_config_dir(
+        environ={},
+        home=tmp_path,
+        platform_name="darwin",
+        os_name="posix",
+    ) == tmp_path / "Library" / "Application Support" / "steam-shortcuts"
