@@ -5,6 +5,7 @@ from pathlib import Path
 
 from steam_shortcuts import api
 from steam_shortcuts.cli import main
+from steam_shortcuts.models import ExecutableMetadata, ExecutableTitleCandidate
 from steam_shortcuts.vdf_store import load_shortcuts, serialize_shortcuts
 
 
@@ -289,3 +290,37 @@ def test_cli_archive_add_extracts_and_reports_the_verified_shortcut(
     assert payload["backup_path"].startswith(str(shortcuts_path) + ".bak.")
     assert payload["executable"] == str(destination / "Game.exe")
     assert (destination / "Game.exe").is_file()
+
+
+def test_cli_metadata_emits_local_executable_title_candidates(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    executable = tmp_path / "Decktamer.exe"
+    executable.touch()
+    metadata = ExecutableMetadata(
+        executable=executable,
+        product_name="Decktamer",
+        file_description="Decktamer",
+        original_filename="Decktamer.exe",
+        company_name="Horizon Edge",
+        internal_name="Decktamer",
+        product_version="1.0.0",
+        title_candidates=(
+            ExecutableTitleCandidate(value="Decktamer", source="product_name"),
+        ),
+    )
+    monkeypatch.setattr("steam_shortcuts.cli.read_executable_metadata", lambda _: metadata)
+
+    assert main(["metadata", "--exe", str(executable), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "company_name": "Horizon Edge",
+        "executable": str(executable),
+        "file_description": "Decktamer",
+        "internal_name": "Decktamer",
+        "original_filename": "Decktamer.exe",
+        "product_name": "Decktamer",
+        "product_version": "1.0.0",
+        "title_candidates": [{"source": "product_name", "value": "Decktamer"}],
+    }

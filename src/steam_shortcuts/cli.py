@@ -11,7 +11,8 @@ from typing import Any
 
 from . import api
 from .errors import SteamShortcutsError
-from .models import ArchiveInspection, ShortcutResult
+from .executable_metadata import read_executable_metadata
+from .models import ArchiveInspection, ExecutableMetadata, ShortcutResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +31,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_root_argument(list_parser)
     _add_profile_argument(list_parser)
     list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
+    metadata_parser = subcommands.add_parser(
+        "metadata",
+        help="Read title candidates from a local Windows executable.",
+    )
+    metadata_parser.add_argument(
+        "--exe",
+        required=True,
+        type=Path,
+        help="Windows executable to inspect.",
+    )
+    metadata_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     add_parser = subcommands.add_parser("add", help="Add one non-Steam shortcut.")
     _add_root_argument(add_parser)
@@ -85,6 +98,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run_detect(arguments)
         elif arguments.command == "list":
             _run_list(arguments)
+        elif arguments.command == "metadata":
+            _run_metadata(arguments)
         elif arguments.command == "add":
             _run_add(arguments)
         else:  # pragma: no cover - argparse owns the command choices
@@ -120,6 +135,12 @@ def _run_list(arguments: argparse.Namespace) -> None:
     ]
     payload = {"profile_id": profile.profile_id, "shortcuts": listed_shortcuts}
     _emit(payload, arguments.json, f"Profile {profile.profile_id}: {len(shortcuts)} shortcuts")
+
+
+def _run_metadata(arguments: argparse.Namespace) -> None:
+    metadata = read_executable_metadata(arguments.exe)
+    payload = _metadata_payload(metadata)
+    _emit(payload, arguments.json, f"Metadata: {metadata.executable}")
 
 
 def _run_add(arguments: argparse.Namespace) -> None:
@@ -221,6 +242,22 @@ def _archive_payload(inspection: ArchiveInspection) -> dict[str, Any]:
         "executable_relative": str(inspection.executable_relative),
         "archive_root": None if inspection.archive_root is None else str(inspection.archive_root),
         "selection": inspection.selection,
+    }
+
+
+def _metadata_payload(metadata: ExecutableMetadata) -> dict[str, Any]:
+    return {
+        "executable": str(metadata.executable),
+        "product_name": metadata.product_name,
+        "file_description": metadata.file_description,
+        "original_filename": metadata.original_filename,
+        "company_name": metadata.company_name,
+        "internal_name": metadata.internal_name,
+        "product_version": metadata.product_version,
+        "title_candidates": [
+            {"value": candidate.value, "source": candidate.source}
+            for candidate in metadata.title_candidates
+        ],
     }
 
 

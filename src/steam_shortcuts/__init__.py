@@ -13,15 +13,26 @@ from .errors import (
     SteamNotFound,
     SteamRunning,
 )
-from .models import ArchiveInspection, ShortcutRequest, ShortcutResult, SteamProfile
+from .executable_metadata import read_executable_metadata
+from .models import (
+    ArchiveInspection,
+    ExecutableMetadata,
+    ExecutableTitleCandidate,
+    ShortcutRequest,
+    ShortcutResult,
+    SteamProfile,
+)
 
 __version__ = "0.2.1"
 
 __all__ = [
     "add_shortcut",
     "add_shortcut_from_archive",
+    "read_executable_metadata",
     "ArchiveExecutableSelectionRequired",
     "ArchiveInspection",
+    "ExecutableMetadata",
+    "ExecutableTitleCandidate",
     "InvalidArchive",
     "InvalidShortcutFile",
     "InvalidExecutable",

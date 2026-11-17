@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "pefile>=2023.2.7,<2026",
     "psutil>=5.9,<8",
     "vdf>=3.4,<4",
 ]

@@ -8,6 +8,12 @@ from typing import Literal
 
 ShortcutStatus = Literal["added", "already_exists"]
 ArchiveSelection = Literal["explicit", "single_candidate"]
+MetadataTitleSource = Literal[
+    "product_name",
+    "file_description",
+    "internal_name",
+    "executable_stem",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +92,28 @@ class ArchiveInspection:
     @property
     def executable(self) -> Path:
         return self.extract_to.joinpath(*self.install_relative.parts)
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutableTitleCandidate:
+    """A possible original game title inferred from local executable metadata."""
+
+    value: str
+    source: MetadataTitleSource
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutableMetadata:
+    """Windows PE version-resource metadata from one local executable."""
+
+    executable: Path
+    product_name: str | None
+    file_description: str | None
+    original_filename: str | None
+    company_name: str | None
+    internal_name: str | None
+    product_version: str | None
+    title_candidates: tuple[ExecutableTitleCandidate, ...]
 
 
 def _reject_nul(field_name: str, value: str) -> None:
