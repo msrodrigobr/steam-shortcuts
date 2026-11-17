@@ -94,8 +94,21 @@ class ArchiveExecutableSelectionRequired(SteamShortcutsError):
 class SteamGridDbApiKeyMissing(SteamShortcutsError):
     """Raised when an online SteamGridDB operation has no API credential."""
 
-    def __init__(self) -> None:
-        super().__init__("SteamGridDB API key is required; set STEAMGRIDDB_API_KEY")
+    def __init__(self, reason: str | None = None) -> None:
+        message = (
+            "SteamGridDB API key is required; set STEAMGRIDDB_API_KEY or run from an "
+            "interactive terminal to save it locally"
+        )
+        super().__init__(message if reason is None else f"{message}: {reason}")
+
+
+class CredentialStorageError(SteamShortcutsError):
+    """Raised when a local API credential cannot be read or safely persisted."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Credential storage error at {path}: {reason}")
 
 
 class SteamGridDbRequestFailed(SteamShortcutsError):

@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import api
+from .credentials import configure_steamgriddb_api_key
 from .errors import SteamShortcutsError
 from .executable_metadata import read_executable_metadata
 from .models import (
@@ -35,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     detect_parser = subcommands.add_parser("detect", help="Find Steam and local profiles.")
     _add_root_argument(detect_parser)
     detect_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
+    configure_parser = subcommands.add_parser(
+        "configure-steamgriddb",
+        help="Prompt once and save a local SteamGridDB API key.",
+    )
+    configure_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     list_parser = subcommands.add_parser("list", help="List shortcuts in one Steam profile.")
     _add_root_argument(list_parser)
@@ -183,6 +190,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.command == "detect":
             _run_detect(arguments)
+        elif arguments.command == "configure-steamgriddb":
+            _run_configure_steamgriddb(arguments)
         elif arguments.command == "list":
             _run_list(arguments)
         elif arguments.command == "metadata":
@@ -212,6 +221,12 @@ def _run_detect(arguments: argparse.Namespace) -> None:
         "profiles": list(installation.profile_ids),
     }
     _emit(payload, arguments.json, f"Steam: {installation.steam_root}")
+
+
+def _run_configure_steamgriddb(arguments: argparse.Namespace) -> None:
+    credential_path = configure_steamgriddb_api_key()
+    payload = {"status": "saved", "credential_path": str(credential_path)}
+    _emit(payload, arguments.json, f"SteamGridDB credential saved: {credential_path}")
 
 
 def _run_list(arguments: argparse.Namespace) -> None:

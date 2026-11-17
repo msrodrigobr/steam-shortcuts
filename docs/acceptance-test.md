@@ -112,7 +112,7 @@ Run this on the machine and local user account whose Steam library will receive 
 
 1. Complete one direct or archive acceptance shortcut creation and retain its `shortcut_id`.
 2. Fully exit Steam in every mode.
-3. Export a personal SteamGridDB key only in the current shell: `export STEAMGRIDDB_API_KEY='...'`.
+3. Run `steam-shortcuts configure-steamgriddb` in an interactive shell and enter a personal SteamGridDB key at the hidden prompt. Confirm the reported per-user credential file exists with mode `0600` on Linux/macOS; never place the key in a command argument, project file, or test evidence.
 4. Record the current contents of `userdata/<profile-id>/config/grid/` for the shortcut's 64-bit artwork ID, if any. Do not use an existing game with artwork you care about as the disposable test.
 
 ### Procedure
@@ -145,7 +145,7 @@ Run this on the machine and local user account whose Steam library will receive 
 
 5. Start Steam normally. Verify the library portrait cover, game-page hero, and logo visually match the selected game. Fully exit Steam before using `--overwrite`; if used, confirm the JSON lists backup paths and each backup contains the previous file bytes.
 
-6. Record the selected SteamGridDB game ID, Steam client version, and output. Do not store or publish the API key.
+6. Record the selected SteamGridDB game ID, Steam client version, and output. Do not publish, back up, or include the credential file or API key in test evidence.
 
 ## ProtonDB report acceptance
 

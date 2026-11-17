@@ -116,10 +116,17 @@ Inspect a selected Windows executable before making any internet request. `metad
 steam-shortcuts metadata --exe "$HOME/Games/Decktamer/Decktamer.exe" --json
 ```
 
-SteamGridDB lookup is optional and requires the current local user to supply their own API key through an environment variable. Do not put the key in a command line, shell history, Git repository, or package configuration:
+SteamGridDB lookup is optional. On the first interactive `lookup` or `artwork` operation, the CLI asks for the user's personal SteamGridDB key without echoing it, then saves it locally for that OS user. On Linux and Steam Deck the file is `$XDG_CONFIG_HOME/steam-shortcuts/credentials.json` (normally `~/.config/steam-shortcuts/credentials.json`) and is written with mode `0600`; macOS and Windows use their normal per-user application-config locations. The file is plaintext by design because this package has no desktop keychain dependency, so it is protected by the user's account permissions rather than magic. Secrets are not magic. They are files wearing a hat.
+
+To set or replace the saved key explicitly:
 
 ```text
-export STEAMGRIDDB_API_KEY='your-personal-key'
+steam-shortcuts configure-steamgriddb
+```
+
+For CI, scripts, or a temporary override, `STEAMGRIDDB_API_KEY` still takes precedence. It is never accepted as a CLI argument, so it does not leak through shell history or normal process listings.
+
+```text
 steam-shortcuts lookup --exe "$HOME/Games/Decktamer/Decktamer.exe" --json
 ```
 

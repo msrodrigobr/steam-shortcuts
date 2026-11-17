@@ -499,3 +499,18 @@ def test_cli_proton_report_returns_evidence_without_applying_any_tool(
     assert payload["tier"] == "gold"
     assert payload["proton_tool_recommendation"] is None
     assert "does not identify a Proton version" in payload["recommendation_reason"]
+
+
+def test_cli_configure_steamgriddb_reports_only_the_credential_path(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    credential_path = tmp_path / "credentials.json"
+    monkeypatch.setattr(
+        "steam_shortcuts.cli.configure_steamgriddb_api_key",
+        lambda: credential_path,
+    )
+
+    assert main(["configure-steamgriddb", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"credential_path": str(credential_path), "status": "saved"}

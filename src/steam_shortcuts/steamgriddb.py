@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from .credentials import (
+    InteractiveCheck,
+    Prompt,
+    resolve_steamgriddb_api_key,
+)
 from .errors import SteamGridDbApiKeyMissing, SteamGridDbRequestFailed
 from .models import SteamGridDbArtwork, SteamGridDbGame
 
@@ -29,12 +34,17 @@ def steamgriddb_client_from_environment(
     *,
     environ: Mapping[str, str] | None = None,
     transport: Transport | None = None,
+    config_dir: Path | None = None,
+    prompt: Prompt | None = None,
+    is_interactive: InteractiveCheck | None = None,
 ) -> SteamGridDbClient:
-    """Build a client from ``STEAMGRIDDB_API_KEY`` without exposing the secret in CLI args."""
-    environment = os.environ if environ is None else environ
-    api_key = environment.get("STEAMGRIDDB_API_KEY", "").strip()
-    if not api_key:
-        raise SteamGridDbApiKeyMissing()
+    """Build a client from an environment override or a local saved credential."""
+    api_key = resolve_steamgriddb_api_key(
+        environ=environ,
+        config_dir=config_dir,
+        prompt=prompt,
+        is_interactive=is_interactive,
+    )
     return SteamGridDbClient(api_key, transport=transport)
 
 
