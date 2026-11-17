@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .errors import SteamGridDbApiKeyMissing, SteamGridDbRequestFailed
@@ -17,6 +17,27 @@ _API_BASE_URL = "https://www.steamgriddb.com/api/v2"
 Transport = Callable[[Request], bytes]
 
 
+class SteamGridDbArtworkClient(Protocol):
+    """Operations needed to resolve and download a selected artwork set."""
+
+    def get_artwork(self, game_id: int) -> SteamGridDbArtwork: ...
+
+    def download_asset(self, url: str) -> bytes: ...
+
+
+def steamgriddb_client_from_environment(
+    *,
+    environ: Mapping[str, str] | None = None,
+    transport: Transport | None = None,
+) -> SteamGridDbClient:
+    """Build a client from ``STEAMGRIDDB_API_KEY`` without exposing the secret in CLI args."""
+    environment = os.environ if environ is None else environ
+    api_key = environment.get("STEAMGRIDDB_API_KEY", "").strip()
+    if not api_key:
+        raise SteamGridDbApiKeyMissing()
+    return SteamGridDbClient(api_key, transport=transport)
+
+
 def search_steamgriddb_games(
     query: str,
     *,
@@ -24,11 +45,10 @@ def search_steamgriddb_games(
     transport: Transport | None = None,
 ) -> tuple[SteamGridDbGame, ...]:
     """Search SteamGridDB using ``STEAMGRIDDB_API_KEY`` from the environment."""
-    environment = os.environ if environ is None else environ
-    api_key = environment.get("STEAMGRIDDB_API_KEY", "").strip()
-    if not api_key:
-        raise SteamGridDbApiKeyMissing()
-    return SteamGridDbClient(api_key, transport=transport).search_games(query)
+    return steamgriddb_client_from_environment(
+        environ=environ,
+        transport=transport,
+    ).search_games(query)
 
 
 class SteamGridDbClient:
@@ -83,6 +103,30 @@ class SteamGridDbClient:
             hero_url=hero_url,
             logo_url=logo_url,
         )
+
+    def download_asset(self, url: str) -> bytes:
+        """Download one HTTPS artwork URL without leaking the API key to its CDN."""
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise ValueError("SteamGridDB artwork URL must use HTTPS")
+        request = Request(
+            url,
+            headers={
+                "Accept": "image/*",
+                "User-Agent": "steam-shortcuts/online-enrichment",
+            },
+        )
+        try:
+            content = self._transport(request)
+        except HTTPError as error:
+            raise SteamGridDbRequestFailed(f"asset HTTP {error.code}") from error
+        except URLError as error:
+            raise SteamGridDbRequestFailed(f"asset {error.reason}") from error
+        except OSError as error:
+            raise SteamGridDbRequestFailed(f"asset {error}") from error
+        if not content:
+            raise SteamGridDbRequestFailed("asset response was empty")
+        return content
 
     def _best_asset_url(self, endpoint: str, query: Mapping[str, str], kind: str) -> str:
         payload = self._request_json(f"{endpoint}?{urlencode(query)}")

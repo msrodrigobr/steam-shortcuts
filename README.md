@@ -2,9 +2,9 @@
 
 A portable Python library and command-line tool for adding non-Steam shortcuts to a local Steam profile without GUI automation.
 
-It edits only Steam's per-user binary `userdata/<steam-id>/config/shortcuts.vdf`, never `localconfig.vdf`. Before replacing an existing shortcut file it creates a timestamped sibling backup, uses an atomic replacement, then rereads the VDF and verifies the exact shortcut it added.
+It edits Steam's per-user binary `userdata/<steam-id>/config/shortcuts.vdf` and, when explicitly requested, local `userdata/<steam-id>/config/grid/` artwork files. It never edits `localconfig.vdf`. Before replacing an existing shortcut file it creates a timestamped sibling backup, uses an atomic replacement, then rereads the VDF and verifies the exact shortcut it added.
 
-Steam must be fully closed before using `add`. The tool refuses to write if it detects the main `steam` or `steam.exe` process. It will not murder Steam for you; that is a feature, not a missing feature.
+Steam must be fully closed before using `add` or `artwork`. The tool refuses to write if it detects the main `steam` or `steam.exe` process. It will not murder Steam for you; that is a feature, not a missing feature.
 
 ## Status and support
 
@@ -12,7 +12,7 @@ Steam must be fully closed before using `add`. The tool refuses to write if it d
 - Steam discovery supports Windows registry/default locations, common Linux locations (including Flatpak), and macOS.
 - If a Steam root has multiple numeric profiles, `--steam-id` is required. The tool never guesses an account.
 - Archive mode safely supports already-installed game directories in `.tar`, `.tar.gz` / `.tgz`, `.tar.bz2`, and `.tar.xz` files.
-- The tool does not add artwork, modify Steam Cloud or `localconfig.vdf`, restart Steam, launch games, configure Proton, or drive the Steam UI.
+- The tool never modifies Steam Cloud or `localconfig.vdf`, restarts Steam, launches games, configures Proton, or drives the Steam UI.
 
 ## Install
 
@@ -108,6 +108,44 @@ steam-shortcuts add \
 
 When every archive member is inside one top-level directory, archive mode removes that wrapper while extracting. For example, `Decktamer/Decktamer.exe` inside `Decktamer.tar`, with `--extract-to "$HOME/Games/Decktamer"`, becomes `$HOME/Games/Decktamer/Decktamer.exe`, not `$HOME/Games/Decktamer/Decktamer/Decktamer.exe`. JSON reports that decision as `archive_root: "Decktamer"`. Archives with root-level regular files keep their original layout and report `archive_root: null`.
 
+## Title lookup and artwork
+
+Inspect a selected Windows executable before making any internet request. `metadata` reads PE version-resource fields such as `ProductName`, `FileDescription`, `OriginalFilename`, company, and product version, then emits deduplicated title candidates in confidence order:
+
+```text
+steam-shortcuts metadata --exe "$HOME/Games/Decktamer/Decktamer.exe" --json
+```
+
+SteamGridDB lookup is optional and requires the current local user to supply their own API key through an environment variable. Do not put the key in a command line, shell history, Git repository, or package configuration:
+
+```text
+export STEAMGRIDDB_API_KEY='your-personal-key'
+steam-shortcuts lookup --exe "$HOME/Games/Decktamer/Decktamer.exe" --json
+```
+
+`lookup` returns candidate names and SteamGridDB IDs. Select the correct ID yourself; the tool intentionally does not attach art to the first similarly named thing the internet throws at it. With Steam fully closed, first preview the exact files and URLs:
+
+```text
+steam-shortcuts artwork \
+  --steam-id 123456789 \
+  --shortcut-id 3516482161 \
+  --steamgriddb-id 42 \
+  --dry-run --json
+```
+
+After reviewing the preview, rerun the command without `--dry-run` to download and install a portrait cover, hero, and logo beneath `userdata/<steam-id>/config/grid/`. The artwork filenames use Steam's 64-bit shortcut artwork identifier, not merely the 32-bit `appid`, because Steam enjoys having two IDs for one shortcut. Existing artwork is preserved by default; `--overwrite` creates sibling backups before replacing it.
+
+## Proton compatibility report
+
+Use the same executable metadata to search Steam's public Store index, then manually choose the exact AppID. Title matching is intentionally explicit because similarly named demos, remasters, and unrelated games are a fine way to configure the wrong thing:
+
+```text
+steam-shortcuts store-search --exe "$HOME/Games/Decktamer/Decktamer.exe" --json
+steam-shortcuts proton-report --steam-appid <selected-app-id> --json
+```
+
+`proton-report` is read-only. It returns ProtonDB's current tier, best reported tier, trending tier, confidence, score, report count, and a link to the reports. ProtonDB's public summary does not identify a canonical tested Proton or GE-Proton version, so the tool explicitly returns no version recommendation and never changes Steam compatibility settings. It is evidence for a human decision, not a very confident dice roll.
+
 After Steam restarts, configure a Proton compatibility version in Steam if the selected executable is a Windows game. Registering a Windows executable does not magically make it a Linux game. Shocking, I know.
 
 ## Python API
@@ -137,7 +175,7 @@ archive_result = add_shortcut_from_archive(
 print(archive_result.shortcut.status, archive_result.inspection.executable)
 ```
 
-The API and CLI run on the same local user account that owns the Steam profile. They do not communicate with a Steam account, web API, or remote computer.
+Shortcut operations run on the same local user account that owns the Steam profile. `metadata`, `detect`, `list`, and `add` are local-only. `lookup` and `artwork` make optional HTTPS requests to SteamGridDB only after the user supplies `STEAMGRIDDB_API_KEY`; no Steam account or Steam Web API is used.
 
 ## Recovery
 

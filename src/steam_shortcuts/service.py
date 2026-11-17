@@ -90,9 +90,16 @@ def plan_shortcut_addition(
     )
 
 
+def shortcut_artwork_id(shortcut_id: int) -> int:
+    """Return Steam's 64-bit artwork identifier for an unsigned shortcut AppID."""
+    if not 0 <= shortcut_id < _UINT32_MODULUS:
+        raise ValueError("Steam AppID must fit in unsigned 32-bit range")
+    return (shortcut_id << 32) | _RUN_GAME_LOW_BITS
+
+
 def run_game_url(shortcut_id: int) -> str:
     """Return the Steam protocol URL corresponding to an unsigned shortcut ID."""
-    return f"steam://rungameid/{(shortcut_id << 32) | _RUN_GAME_LOW_BITS}"
+    return f"steam://rungameid/{shortcut_artwork_id(shortcut_id)}"
 
 
 def add_shortcut_to_profile(

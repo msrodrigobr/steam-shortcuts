@@ -136,6 +136,41 @@ class SteamGridDbArtwork:
     logo_url: str
 
 
+@dataclass(frozen=True, slots=True)
+class ArtworkInstallResult:
+    """Verified local artwork files installed for one non-Steam shortcut."""
+
+    shortcut_id: int
+    artwork_id: int
+    grid_dir: Path
+    portrait_path: Path
+    hero_path: Path
+    logo_path: Path
+    backup_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SteamStoreGame:
+    """One explicit Steam Store application candidate returned by title search."""
+
+    app_id: int
+    name: str
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProtonDbReport:
+    """Read-only compatibility evidence from ProtonDB's public summary endpoint."""
+
+    app_id: int
+    tier: str
+    best_reported_tier: str
+    trending_tier: str
+    confidence: str
+    score: float
+    total_reports: int
+
+
 def _reject_nul(field_name: str, value: str) -> None:
     if "\x00" in value:
         raise ValueError(f"{field_name} must not contain NUL")

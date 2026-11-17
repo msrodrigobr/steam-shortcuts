@@ -4,7 +4,7 @@ import pytest
 
 from steam_shortcuts.errors import InvalidExecutable, ShortcutConflict
 from steam_shortcuts.models import ShortcutRequest
-from steam_shortcuts.service import plan_shortcut_addition, shortcut_app_id
+from steam_shortcuts.service import plan_shortcut_addition, shortcut_app_id, shortcut_artwork_id
 
 
 def _request(executable: Path, **overrides: object) -> ShortcutRequest:
@@ -15,6 +15,10 @@ def _request(executable: Path, **overrides: object) -> ShortcutRequest:
 
 def test_shortcut_app_id_matches_steam_crc32_scheme() -> None:
     assert shortcut_app_id('"C:\\Games\\Game.exe"', "Game") == 3_516_482_161
+
+
+def test_shortcut_artwork_id_matches_the_steam_run_game_identifier() -> None:
+    assert shortcut_artwork_id(3_516_482_161) == 15_103_175_878_495_961_088
 
 
 def test_plan_builds_steam_compatible_shortcut_fields(tmp_path: Path) -> None:

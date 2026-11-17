@@ -51,6 +51,15 @@ class ShortcutConflict(SteamShortcutsError):
     """Raised when an executable already belongs to a different shortcut."""
 
 
+class ShortcutNotFound(SteamShortcutsError):
+    """Raised when an artwork action names no shortcut in the chosen profile."""
+
+    def __init__(self, shortcut_id: int, profile_id: str) -> None:
+        self.shortcut_id = shortcut_id
+        self.profile_id = profile_id
+        super().__init__(f"Shortcut ID {shortcut_id} was not found in Steam profile {profile_id}")
+
+
 class InvalidExecutable(SteamShortcutsError):
     """Raised when a requested shortcut target cannot be launched as a file."""
 
@@ -94,6 +103,40 @@ class SteamGridDbRequestFailed(SteamShortcutsError):
 
     def __init__(self, reason: str) -> None:
         super().__init__(f"SteamGridDB request failed: {reason}")
+
+
+class SteamStoreRequestFailed(SteamShortcutsError):
+    """Raised when Steam Store search cannot return a usable response."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Steam Store request failed: {reason}")
+
+
+class ProtonDbRequestFailed(SteamShortcutsError):
+    """Raised when ProtonDB's public compatibility summary is unavailable."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"ProtonDB request failed: {reason}")
+
+
+class ArtworkAlreadyExists(SteamShortcutsError):
+    """Raised when artwork would replace an existing Steam grid file."""
+
+    def __init__(self, paths: Iterable[Path]) -> None:
+        self.paths = tuple(paths)
+        formatted = ", ".join(str(path) for path in self.paths)
+        super().__init__(
+            f"Refusing to replace existing artwork: {formatted}. Re-run with --overwrite."
+        )
+
+
+class ArtworkWriteFailed(SteamShortcutsError):
+    """Raised when artwork cannot be safely written to Steam's grid directory."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Could not install artwork in {path}: {reason}")
 
 
 class ShortcutVerificationFailed(SteamShortcutsError):

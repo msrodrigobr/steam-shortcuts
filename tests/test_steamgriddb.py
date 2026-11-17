@@ -6,12 +6,22 @@ from urllib.request import Request
 import pytest
 
 from steam_shortcuts.errors import SteamGridDbApiKeyMissing
-from steam_shortcuts.steamgriddb import SteamGridDbClient, search_steamgriddb_games
+from steam_shortcuts.steamgriddb import (
+    SteamGridDbClient,
+    search_steamgriddb_games,
+    steamgriddb_client_from_environment,
+)
 
 
 def test_search_steamgriddb_games_requires_an_api_key() -> None:
     with pytest.raises(SteamGridDbApiKeyMissing, match="STEAMGRIDDB_API_KEY"):
         search_steamgriddb_games("Decktamer", environ={})
+
+
+def test_steamgriddb_client_factory_reads_the_api_key_from_environment() -> None:
+    client = steamgriddb_client_from_environment(environ={"STEAMGRIDDB_API_KEY": "secret"})
+
+    assert isinstance(client, SteamGridDbClient)
 
 
 def test_steamgriddb_client_searches_title_with_bearer_authentication() -> None:
@@ -77,3 +87,18 @@ def test_steamgriddb_client_selects_highest_scored_artwork_for_each_required_kin
     assert any("dimensions=600x900" in request.full_url for request in requests)
     assert any("mimes=image%2Fjpeg" in request.full_url for request in requests)
     assert any("mimes=image%2Fpng" in request.full_url for request in requests)
+
+
+def test_steamgriddb_client_downloads_asset_without_sending_api_key_to_the_cdn() -> None:
+    requests: list[Request] = []
+
+    def transport(request: Request) -> bytes:
+        requests.append(request)
+        return b"image-bytes"
+
+    content = SteamGridDbClient("secret", transport=transport).download_asset(
+        "https://cdn.example/game-art.jpg"
+    )
+
+    assert content == b"image-bytes"
+    assert requests[0].get_header("Authorization") is None

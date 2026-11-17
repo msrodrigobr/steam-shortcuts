@@ -5,7 +5,16 @@ from pathlib import Path
 
 from steam_shortcuts import api
 from steam_shortcuts.cli import main
-from steam_shortcuts.models import ExecutableMetadata, ExecutableTitleCandidate, SteamGridDbGame
+from steam_shortcuts.models import (
+    ArtworkInstallResult,
+    ExecutableMetadata,
+    ExecutableTitleCandidate,
+    ProtonDbReport,
+    SteamGridDbArtwork,
+    SteamGridDbGame,
+    SteamProfile,
+    SteamStoreGame,
+)
 from steam_shortcuts.vdf_store import load_shortcuts, serialize_shortcuts
 
 
@@ -356,3 +365,137 @@ def test_cli_lookup_searches_steamgriddb_using_the_best_local_title(
     assert payload["games"] == [
         {"id": 42, "name": "Decktamer", "types": ["steam"], "verified": True},
     ]
+
+
+def test_cli_artwork_dry_run_reports_exact_paths_without_writing(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    grid_dir = tmp_path / "grid"
+    preview = api.ArtworkPreview(
+        steam_root=tmp_path / "Steam",
+        profile=SteamProfile(profile_id="123", shortcuts_path=tmp_path / "shortcuts.vdf"),
+        artwork=SteamGridDbArtwork(
+            game_id=42,
+            portrait_url="https://cdn.example/portrait.jpg",
+            hero_url="https://cdn.example/hero.jpg",
+            logo_url="https://cdn.example/logo.png",
+        ),
+        grid_dir=grid_dir,
+        portrait_path=grid_dir / "42p.jpg",
+        hero_path=grid_dir / "42_hero.jpg",
+        logo_path=grid_dir / "42_logo.png",
+        conflicting_paths=(),
+    )
+    monkeypatch.setattr(api, "preview_steamgriddb_artwork", lambda **_: preview)
+
+    assert (
+        main(
+            [
+                "artwork",
+                "--steamgriddb-id",
+                "42",
+                "--shortcut-id",
+                "42",
+                "--dry-run",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["artwork"]["game_id"] == 42
+    assert payload["paths"] == {
+        "hero": str(grid_dir / "42_hero.jpg"),
+        "logo": str(grid_dir / "42_logo.png"),
+        "portrait": str(grid_dir / "42p.jpg"),
+    }
+
+
+def test_cli_artwork_installs_only_after_dry_run_is_omitted(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    grid_dir = tmp_path / "grid"
+    result = ArtworkInstallResult(
+        shortcut_id=42,
+        artwork_id=180_422_180_864,
+        grid_dir=grid_dir,
+        portrait_path=grid_dir / "42p.jpg",
+        hero_path=grid_dir / "42_hero.jpg",
+        logo_path=grid_dir / "42_logo.png",
+        backup_paths=(),
+    )
+    monkeypatch.setattr(api, "install_steamgriddb_artwork", lambda **_: result)
+
+    assert (
+        main(
+            [
+                "artwork",
+                "--steamgriddb-id",
+                "42",
+                "--shortcut-id",
+                "42",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is False
+    assert payload["artwork_id"] == 180_422_180_864
+    assert payload["backup_paths"] == []
+
+
+def test_cli_store_search_uses_the_best_local_title_candidate(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    executable = tmp_path / "Decktamer.exe"
+    executable.touch()
+    metadata = ExecutableMetadata(
+        executable=executable,
+        product_name="Decktamer",
+        file_description=None,
+        original_filename="Decktamer.exe",
+        company_name=None,
+        internal_name=None,
+        product_version=None,
+        title_candidates=(
+            ExecutableTitleCandidate(value="Decktamer", source="product_name"),
+        ),
+    )
+    monkeypatch.setattr("steam_shortcuts.cli.read_executable_metadata", lambda _: metadata)
+    monkeypatch.setattr(
+        "steam_shortcuts.cli.search_steam_store_games",
+        lambda query: (SteamStoreGame(app_id=123, name=query, kind="game"),),
+    )
+
+    assert main(["store-search", "--exe", str(executable), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["query"] == "Decktamer"
+    assert payload["games"] == [{"app_id": 123, "kind": "game", "name": "Decktamer"}]
+
+
+def test_cli_proton_report_returns_evidence_without_applying_any_tool(
+    capsys, monkeypatch
+) -> None:
+    report = ProtonDbReport(
+        app_id=730,
+        tier="gold",
+        best_reported_tier="platinum",
+        trending_tier="platinum",
+        confidence="strong",
+        score=0.72,
+        total_reports=2075,
+    )
+    monkeypatch.setattr("steam_shortcuts.cli.get_protondb_report", lambda _: report)
+
+    assert main(["proton-report", "--steam-appid", "730", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["app_id"] == 730
+    assert payload["tier"] == "gold"
+    assert payload["proton_tool_recommendation"] is None
+    assert "does not identify a Proton version" in payload["recommendation_reason"]

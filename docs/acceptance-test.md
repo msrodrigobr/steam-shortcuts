@@ -106,6 +106,63 @@ Run this on the machine and local user account whose Steam library will receive 
 
 5. Preserve the JSON output and exact archive-relative executable selection. Do not delete the VDF backup until the real Steam client result is recorded.
 
+## SteamGridDB artwork acceptance
+
+### Preconditions
+
+1. Complete one direct or archive acceptance shortcut creation and retain its `shortcut_id`.
+2. Fully exit Steam in every mode.
+3. Export a personal SteamGridDB key only in the current shell: `export STEAMGRIDDB_API_KEY='...'`.
+4. Record the current contents of `userdata/<profile-id>/config/grid/` for the shortcut's 64-bit artwork ID, if any. Do not use an existing game with artwork you care about as the disposable test.
+
+### Procedure
+
+1. Inspect the local executable and record the returned title candidates:
+
+   ```text
+   steam-shortcuts metadata --exe "$HOME/Games/Artwork Acceptance/Game.exe" --json
+   ```
+
+2. Search SteamGridDB, inspect the returned candidates, and choose the exact game ID manually:
+
+   ```text
+   steam-shortcuts lookup --exe "$HOME/Games/Artwork Acceptance/Game.exe" --json
+   ```
+
+3. Preview the selected artwork without downloading or writing files:
+
+   ```text
+   steam-shortcuts artwork \
+     --steam-id <profile-id> \
+     --shortcut-id <shortcut-id> \
+     --steamgriddb-id <selected-game-id> \
+     --dry-run --json
+   ```
+
+   Expected: `dry_run: true`, three HTTPS artwork URLs, exact portrait/hero/logo target paths, and no new `grid` files.
+
+4. With Steam still closed, rerun the command without `--dry-run`. Confirm all three reported files exist and are non-empty. If any target already existed, the command must refuse without `--overwrite` and leave every existing file unchanged.
+
+5. Start Steam normally. Verify the library portrait cover, game-page hero, and logo visually match the selected game. Fully exit Steam before using `--overwrite`; if used, confirm the JSON lists backup paths and each backup contains the previous file bytes.
+
+6. Record the selected SteamGridDB game ID, Steam client version, and output. Do not store or publish the API key.
+
+## ProtonDB report acceptance
+
+1. With no Steam file mutation expected, identify an explicit Store AppID from local executable metadata:
+
+   ```text
+   steam-shortcuts store-search --exe "$HOME/Games/Artwork Acceptance/Game.exe" --json
+   ```
+
+2. Manually choose the exact game from the returned AppID/name/type candidates, then run:
+
+   ```text
+   steam-shortcuts proton-report --steam-appid <selected-app-id> --json
+   ```
+
+3. Expected: output contains ProtonDB tier evidence, the matching AppID, a ProtonDB URL, `proton_tool_recommendation: null`, and an explanation that no version was selected. Confirm no `shortcuts.vdf`, `localconfig.vdf`, or `grid` file timestamps changed.
+
 ## Failure handling
 
 - If Steam is running when `add` is attempted, the tool must refuse to write. Do not workaround this by killing processes blindly.

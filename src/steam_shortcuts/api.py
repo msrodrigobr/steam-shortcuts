@@ -7,15 +7,28 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .archive import extract_archive, inspect_archive
+from .artwork import install_artwork
 from .discovery import discover_steam_root, list_profile_ids, select_profile
-from .errors import InvalidArchive
-from .models import ArchiveInspection, ShortcutRequest, ShortcutResult, SteamProfile
+from .errors import InvalidArchive, ShortcutNotFound
+from .models import (
+    ArchiveInspection,
+    ArtworkInstallResult,
+    ShortcutRequest,
+    ShortcutResult,
+    SteamGridDbArtwork,
+    SteamProfile,
+)
 from .process import ensure_steam_not_running
 from .service import (
     ShortcutAdditionPlan,
     add_shortcut_to_profile,
     plan_shortcut_addition,
+    shortcut_artwork_id,
     to_unsigned_int32,
+)
+from .steamgriddb import (
+    SteamGridDbArtworkClient,
+    steamgriddb_client_from_environment,
 )
 from .vdf_store import VdfMap, VdfValue, load_shortcuts
 
@@ -65,6 +78,20 @@ class ShortcutListing:
     name: str
     executable: str
     app_id: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtworkPreview:
+    """Selected remote artwork and the exact local Steam paths it would occupy."""
+
+    steam_root: Path
+    profile: SteamProfile
+    artwork: SteamGridDbArtwork
+    grid_dir: Path
+    portrait_path: Path
+    hero_path: Path
+    logo_path: Path
+    conflicting_paths: tuple[Path, ...]
 
 
 def detect_steam(steam_root: Path | None = None) -> SteamInstallation:
@@ -238,6 +265,103 @@ def add_shortcut_from_archive(
         request,
     )
     return ArchiveShortcutResult(inspection=preview.inspection, shortcut=shortcut)
+
+
+def preview_steamgriddb_artwork(
+    *,
+    steamgriddb_game_id: int,
+    shortcut_id: int,
+    steam_root: Path | None = None,
+    steam_id: str | None = None,
+    client: SteamGridDbArtworkClient | None = None,
+) -> ArtworkPreview:
+    """Verify a local shortcut and resolve its selected SteamGridDB artwork."""
+    preview, _ = _resolve_steamgriddb_artwork(
+        steamgriddb_game_id=steamgriddb_game_id,
+        shortcut_id=shortcut_id,
+        steam_root=steam_root,
+        steam_id=steam_id,
+        client=client,
+    )
+    return preview
+
+
+def install_steamgriddb_artwork(
+    *,
+    steamgriddb_game_id: int,
+    shortcut_id: int,
+    steam_root: Path | None = None,
+    steam_id: str | None = None,
+    overwrite: bool = False,
+    client: SteamGridDbArtworkClient | None = None,
+) -> ArtworkInstallResult:
+    """Install selected SteamGridDB artwork for one verified local shortcut."""
+    preview, resolved_client = _resolve_steamgriddb_artwork(
+        steamgriddb_game_id=steamgriddb_game_id,
+        shortcut_id=shortcut_id,
+        steam_root=steam_root,
+        steam_id=steam_id,
+        client=client,
+    )
+    return install_artwork(
+        grid_dir=preview.grid_dir,
+        shortcut_id=shortcut_id,
+        artwork=preview.artwork,
+        downloader=resolved_client.download_asset,
+        overwrite=overwrite,
+    )
+
+
+def _resolve_steamgriddb_artwork(
+    *,
+    steamgriddb_game_id: int,
+    shortcut_id: int,
+    steam_root: Path | None,
+    steam_id: str | None,
+    client: SteamGridDbArtworkClient | None,
+) -> tuple[ArtworkPreview, SteamGridDbArtworkClient]:
+    installation = detect_steam(steam_root)
+    ensure_steam_not_running()
+    profile = select_profile(installation.steam_root, steam_id)
+    _require_shortcut(profile, shortcut_id)
+    resolved_client = client if client is not None else steamgriddb_client_from_environment()
+    artwork = resolved_client.get_artwork(steamgriddb_game_id)
+    grid_dir = profile.shortcuts_path.parent / "grid"
+    artwork_id = shortcut_artwork_id(shortcut_id)
+    portrait_path = grid_dir / f"{artwork_id}p.jpg"
+    hero_path = grid_dir / f"{artwork_id}_hero.jpg"
+    logo_path = grid_dir / f"{artwork_id}_logo.png"
+    paths = (portrait_path, hero_path, logo_path)
+    return (
+        ArtworkPreview(
+            steam_root=installation.steam_root,
+            profile=profile,
+            artwork=artwork,
+            grid_dir=grid_dir,
+            portrait_path=portrait_path,
+            hero_path=hero_path,
+            logo_path=logo_path,
+            conflicting_paths=tuple(path for path in paths if path.exists() or path.is_symlink()),
+        ),
+        resolved_client,
+    )
+
+
+def _require_shortcut(profile: SteamProfile, shortcut_id: int) -> None:
+    shortcuts = _shortcut_map(load_shortcuts(profile.shortcuts_path))
+    for entry in shortcuts.values():
+        if not isinstance(entry, dict):
+            continue
+        raw_app_id = entry.get("appid")
+        if not isinstance(raw_app_id, int) or isinstance(raw_app_id, bool):
+            continue
+        try:
+            app_id = to_unsigned_int32(raw_app_id)
+        except ValueError:
+            continue
+        if app_id == shortcut_id:
+            return
+    raise ShortcutNotFound(shortcut_id, profile.profile_id)
 
 
 def _resolve_archive_destination(archive: Path, extract_to: Path | None) -> Path:
