@@ -126,6 +126,16 @@ class SteamGridDbGame:
     verified: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SteamGridDbArtwork:
+    """One selected portrait, hero, and logo set for a SteamGridDB game."""
+
+    game_id: int
+    portrait_url: str
+    hero_url: str
+    logo_url: str
+
+
 def _reject_nul(field_name: str, value: str) -> None:
     if "\x00" in value:
         raise ValueError(f"{field_name} must not contain NUL")

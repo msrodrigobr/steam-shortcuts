@@ -7,11 +7,11 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .errors import SteamGridDbApiKeyMissing, SteamGridDbRequestFailed
-from .models import SteamGridDbGame
+from .models import SteamGridDbArtwork, SteamGridDbGame
 
 _API_BASE_URL = "https://www.steamgriddb.com/api/v2"
 Transport = Callable[[Request], bytes]
@@ -57,6 +57,54 @@ class SteamGridDbClient:
         if not isinstance(data, list):
             raise ValueError("SteamGridDB response data must be a list")
         return tuple(_game_from_payload(item) for item in data)
+
+    def get_artwork(self, game_id: int) -> SteamGridDbArtwork:
+        """Select Steam-compatible portrait, hero, and logo assets for one game."""
+        if not isinstance(game_id, int) or isinstance(game_id, bool) or game_id <= 0:
+            raise ValueError("SteamGridDB game id must be a positive integer")
+        portrait_url = self._best_asset_url(
+            "/grids/game/" + str(game_id),
+            {"dimensions": "600x900", "mimes": "image/jpeg", "types": "static"},
+            "portrait",
+        )
+        hero_url = self._best_asset_url(
+            "/heroes/game/" + str(game_id),
+            {"mimes": "image/jpeg", "types": "static"},
+            "hero",
+        )
+        logo_url = self._best_asset_url(
+            "/logos/game/" + str(game_id),
+            {"mimes": "image/png", "types": "static"},
+            "logo",
+        )
+        return SteamGridDbArtwork(
+            game_id=game_id,
+            portrait_url=portrait_url,
+            hero_url=hero_url,
+            logo_url=logo_url,
+        )
+
+    def _best_asset_url(self, endpoint: str, query: Mapping[str, str], kind: str) -> str:
+        payload = self._request_json(f"{endpoint}?{urlencode(query)}")
+        data = payload.get("data")
+        if not isinstance(data, list):
+            raise SteamGridDbRequestFailed(f"{kind} response data was not a list")
+        candidates: list[tuple[int | float, str]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            score = item.get("score", 0)
+            if (
+                isinstance(url, str)
+                and url.startswith("https://")
+                and isinstance(score, (int, float))
+                and not isinstance(score, bool)
+            ):
+                candidates.append((score, url))
+        if not candidates:
+            raise SteamGridDbRequestFailed(f"no compatible {kind} artwork was returned")
+        return max(candidates, key=lambda candidate: candidate[0])[1]
 
     def _request_json(self, endpoint: str) -> Mapping[str, Any]:
         request = Request(
