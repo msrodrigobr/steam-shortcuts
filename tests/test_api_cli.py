@@ -5,7 +5,7 @@ from pathlib import Path
 
 from steam_shortcuts import api
 from steam_shortcuts.cli import main
-from steam_shortcuts.models import ExecutableMetadata, ExecutableTitleCandidate
+from steam_shortcuts.models import ExecutableMetadata, ExecutableTitleCandidate, SteamGridDbGame
 from steam_shortcuts.vdf_store import load_shortcuts, serialize_shortcuts
 
 
@@ -324,3 +324,35 @@ def test_cli_metadata_emits_local_executable_title_candidates(
         "product_version": "1.0.0",
         "title_candidates": [{"source": "product_name", "value": "Decktamer"}],
     }
+
+
+def test_cli_lookup_searches_steamgriddb_using_the_best_local_title(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    executable = tmp_path / "Decktamer.exe"
+    executable.touch()
+    metadata = ExecutableMetadata(
+        executable=executable,
+        product_name="Decktamer",
+        file_description=None,
+        original_filename="Decktamer.exe",
+        company_name=None,
+        internal_name=None,
+        product_version=None,
+        title_candidates=(
+            ExecutableTitleCandidate(value="Decktamer", source="product_name"),
+        ),
+    )
+    monkeypatch.setattr("steam_shortcuts.cli.read_executable_metadata", lambda _: metadata)
+    monkeypatch.setattr(
+        "steam_shortcuts.cli.search_steamgriddb_games",
+        lambda query: (SteamGridDbGame(id=42, name=query, types=("steam",), verified=True),),
+    )
+
+    assert main(["lookup", "--exe", str(executable), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["query"] == "Decktamer"
+    assert payload["games"] == [
+        {"id": 42, "name": "Decktamer", "types": ["steam"], "verified": True},
+    ]

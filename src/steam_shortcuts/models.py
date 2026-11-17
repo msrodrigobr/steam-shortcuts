@@ -116,6 +116,16 @@ class ExecutableMetadata:
     title_candidates: tuple[ExecutableTitleCandidate, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SteamGridDbGame:
+    """One candidate game returned by the SteamGridDB search API."""
+
+    id: int
+    name: str
+    types: tuple[str, ...]
+    verified: bool
+
+
 def _reject_nul(field_name: str, value: str) -> None:
     if "\x00" in value:
         raise ValueError(f"{field_name} must not contain NUL")

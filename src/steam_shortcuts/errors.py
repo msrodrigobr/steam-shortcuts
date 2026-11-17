@@ -82,6 +82,20 @@ class ArchiveExecutableSelectionRequired(SteamShortcutsError):
         )
 
 
+class SteamGridDbApiKeyMissing(SteamShortcutsError):
+    """Raised when an online SteamGridDB operation has no API credential."""
+
+    def __init__(self) -> None:
+        super().__init__("SteamGridDB API key is required; set STEAMGRIDDB_API_KEY")
+
+
+class SteamGridDbRequestFailed(SteamShortcutsError):
+    """Raised when SteamGridDB cannot fulfill an authenticated request."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"SteamGridDB request failed: {reason}")
+
+
 class ShortcutVerificationFailed(SteamShortcutsError):
     """Raised when a just-written shortcut cannot be read back unchanged."""
 

@@ -12,7 +12,8 @@ from typing import Any
 from . import api
 from .errors import SteamShortcutsError
 from .executable_metadata import read_executable_metadata
-from .models import ArchiveInspection, ExecutableMetadata, ShortcutResult
+from .models import ArchiveInspection, ExecutableMetadata, ShortcutResult, SteamGridDbGame
+from .steamgriddb import search_steamgriddb_games
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Windows executable to inspect.",
     )
     metadata_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
+    lookup_parser = subcommands.add_parser(
+        "lookup",
+        help="Search SteamGridDB using local executable metadata.",
+    )
+    lookup_parser.add_argument(
+        "--exe",
+        required=True,
+        type=Path,
+        help="Windows executable whose metadata supplies the default search title.",
+    )
+    lookup_parser.add_argument(
+        "--query",
+        help="Override the title derived from executable metadata.",
+    )
+    lookup_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     add_parser = subcommands.add_parser("add", help="Add one non-Steam shortcut.")
     _add_root_argument(add_parser)
@@ -100,6 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run_list(arguments)
         elif arguments.command == "metadata":
             _run_metadata(arguments)
+        elif arguments.command == "lookup":
+            _run_lookup(arguments)
         elif arguments.command == "add":
             _run_add(arguments)
         else:  # pragma: no cover - argparse owns the command choices
@@ -141,6 +160,18 @@ def _run_metadata(arguments: argparse.Namespace) -> None:
     metadata = read_executable_metadata(arguments.exe)
     payload = _metadata_payload(metadata)
     _emit(payload, arguments.json, f"Metadata: {metadata.executable}")
+
+
+def _run_lookup(arguments: argparse.Namespace) -> None:
+    metadata = read_executable_metadata(arguments.exe)
+    query = arguments.query or _default_lookup_query(metadata)
+    games = search_steamgriddb_games(query)
+    payload = {
+        "query": query,
+        "metadata": _metadata_payload(metadata),
+        "games": _steamgriddb_games_payload(games),
+    }
+    _emit(payload, arguments.json, f"Lookup: {query} ({len(games)} candidates)")
 
 
 def _run_add(arguments: argparse.Namespace) -> None:
@@ -259,6 +290,24 @@ def _metadata_payload(metadata: ExecutableMetadata) -> dict[str, Any]:
             for candidate in metadata.title_candidates
         ],
     }
+
+
+def _default_lookup_query(metadata: ExecutableMetadata) -> str:
+    if not metadata.title_candidates:
+        raise ValueError("executable metadata contained no usable title; provide --query")
+    return metadata.title_candidates[0].value
+
+
+def _steamgriddb_games_payload(games: tuple[SteamGridDbGame, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": game.id,
+            "name": game.name,
+            "types": list(game.types),
+            "verified": game.verified,
+        }
+        for game in games
+    ]
 
 
 def _emit(payload: dict[str, Any], as_json: bool, human_message: str) -> None:
