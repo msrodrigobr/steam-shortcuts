@@ -386,7 +386,10 @@ def _commit_files(
                             _rename_entry_no_clobber(backup_path, target, directory_fd)
                             if backup_path in backups:
                                 backups.remove(backup_path)
-                except (FileExistsError, OSError):
+                except (FileExistsError, OSError) as restore_error:
+                    warnings.append(
+                        f"Could not restore previous artwork from {backup_path}: {restore_error}"
+                    )
                     if backup_path not in backups:
                         backups.append(backup_path)
                 backup_moved = False
