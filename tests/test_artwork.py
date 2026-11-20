@@ -576,7 +576,7 @@ def test_install_artwork_overwrite_keeps_a_backup_of_replaced_images(
     assert result.backup_paths[0].read_bytes() == b"existing-art"
 
 
-@pytest.mark.parametrize("path_mode", ("anchored", "path-fallback"))
+@pytest.mark.parametrize("path_mode", ("anchored", "path-fallback", "windows-like"))
 def test_failed_publication_restores_file_without_consuming_backup(
     tmp_path: Path,
     selected_artwork: SteamGridDbArtwork,
@@ -585,6 +585,24 @@ def test_failed_publication_restores_file_without_consuming_backup(
 ) -> None:
     if path_mode == "path-fallback":
         monkeypatch.setattr(artwork_module, "_open_grid_directory", lambda _: None)
+    elif path_mode == "windows-like":
+        monkeypatch.setattr(artwork_module, "_open_grid_directory", lambda _: None)
+        original_move = artwork_module._rename_entry_no_clobber
+
+        def windows_style_move(source: Path, target: Path, directory_fd: int | None) -> None:
+            if directory_fd is None:
+                if target.exists():
+                    raise FileExistsError(target)
+                artwork_module.os.rename(source, target)
+            else:
+                original_move(source, target, directory_fd)
+
+        monkeypatch.setattr(artwork_module, "_rename_entry_no_clobber", windows_style_move)
+        monkeypatch.setattr(
+            artwork_module.os,
+            "link",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError(95, "no hard links")),
+        )
     grid_dir = tmp_path / "grid"
     grid_dir.mkdir()
     portrait = grid_dir / f"{shortcut_grid_artwork_id(42)}p.jpg"

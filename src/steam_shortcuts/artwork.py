@@ -539,7 +539,11 @@ def _copy_entry_to_temporary(
             temporary_identity = _identity_from_stat(os.fstat(output_file.fileno()))
         if _identity_from_stat(os.fstat(source_fd)) != source_identity:
             raise OSError(f"backup changed while being restored: {source}")
-        if not _path_matches_identity(source, source_identity, directory_fd):
+        try:
+            current_source_identity = _file_identity(source, directory_fd)
+        except OSError as error:
+            raise OSError(f"backup path changed while being restored: {source}") from error
+        if not _same_payload_identity(current_source_identity, source_identity):
             raise OSError(f"backup path changed while being restored: {source}")
         return temporary_identity
     except BaseException:
