@@ -60,6 +60,27 @@ class ShortcutNotFound(SteamShortcutsError):
         super().__init__(f"Shortcut ID {shortcut_id} was not found in Steam profile {profile_id}")
 
 
+class ShortcutNameNotFound(SteamShortcutsError):
+    """Raised when an exact shortcut name cannot be found in one Steam profile."""
+
+    def __init__(self, name: str, profile_id: str) -> None:
+        self.name = name
+        self.profile_id = profile_id
+        super().__init__(
+            f"No exact shortcut named '{name}' was found in Steam profile {profile_id}"
+        )
+
+
+class ShortcutNameAmbiguous(SteamShortcutsError):
+    """Raised when a shortcut name identifies multiple local entries."""
+
+    def __init__(self, name: str, shortcut_ids: Iterable[int]) -> None:
+        self.name = name
+        self.shortcut_ids = tuple(shortcut_ids)
+        formatted = ", ".join(str(value) for value in self.shortcut_ids)
+        super().__init__(f"Shortcut name '{name}' is ambiguous; matching shortcut IDs: {formatted}")
+
+
 class InvalidExecutable(SteamShortcutsError):
     """Raised when a requested shortcut target cannot be launched as a file."""
 

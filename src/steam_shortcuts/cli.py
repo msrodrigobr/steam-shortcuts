@@ -108,6 +108,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     proton_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
+    enrich_parser = subcommands.add_parser(
+        "enrich-game-data",
+        help="Apply official Steam artwork and report ProtonDB evidence for an existing shortcut.",
+    )
+    enrich_parser.add_argument("name", help="Exact name of the existing non-Steam shortcut.")
+    _add_root_argument(enrich_parser)
+    _add_profile_argument(enrich_parser)
+    enrich_parser.add_argument(
+        "--overwrite-artwork",
+        action="store_true",
+        help="Back up and replace same-format artwork; preserve alternate-format variants.",
+    )
+    enrich_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve game data and preview artwork paths without downloading or writing files.",
+    )
+    enrich_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
     artwork_parser = subcommands.add_parser(
         "artwork",
         help="Install selected SteamGridDB artwork for an existing shortcut.",
@@ -129,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     artwork_parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Back up and replace existing artwork for this shortcut.",
+        help="Back up and replace same-format artwork; preserve alternate-format variants.",
     )
     artwork_parser.add_argument(
         "--dry-run",
@@ -187,6 +206,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
+    exit_code = 0
     try:
         if arguments.command == "detect":
             _run_detect(arguments)
@@ -202,8 +222,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             _run_store_search(arguments)
         elif arguments.command == "proton-report":
             _run_proton_report(arguments)
+        elif arguments.command == "enrich-game-data":
+            exit_code = _run_enrich_game_data(arguments)
         elif arguments.command == "artwork":
-            _run_artwork(arguments)
+            exit_code = _run_artwork(arguments)
         elif arguments.command == "add":
             _run_add(arguments)
         else:  # pragma: no cover - argparse owns the command choices
@@ -211,7 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (SteamShortcutsError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    return 0
+    return exit_code
 
 
 def _run_detect(arguments: argparse.Namespace) -> None:
@@ -297,13 +319,81 @@ def _run_proton_report(arguments: argparse.Namespace) -> None:
     _emit(payload, arguments.json, f"ProtonDB: AppID {report.app_id} ({report.tier})")
 
 
-def _run_artwork(arguments: argparse.Namespace) -> None:
+def _run_enrich_game_data(arguments: argparse.Namespace) -> int:
+    result = api.enrich_game_data(
+        name=arguments.name,
+        steam_root=arguments.steam_root,
+        steam_id=arguments.steam_id,
+        dry_run=arguments.dry_run,
+        overwrite_artwork=arguments.overwrite_artwork,
+    )
+    report = result.proton_report
+    payload = {
+        "dry_run": arguments.dry_run,
+        "shortcut_name": result.shortcut_name,
+        "shortcut_id": result.shortcut_id,
+        "profile_id": result.profile_id,
+        "steam_game": {"app_id": result.steam_app_id, "name": result.steam_game_name},
+        "artwork": {
+            "status": result.artwork_status,
+            "paths": {kind: str(path) for kind, path in result.artwork_paths},
+            "conflicting_paths": [str(path) for path in result.conflicting_paths],
+            "backup_paths": (
+                [str(path) for path in result.artwork_result.backup_paths]
+                if result.artwork_result is not None
+                else []
+            ),
+            "warning": result.artwork_warning,
+            "failed_paths": [str(path) for path in result.artwork_failed_paths],
+        },
+        "proton": {
+            "app_id": report.app_id if report is not None else result.steam_app_id,
+            "tier": report.tier if report is not None else None,
+            "best_reported_tier": report.best_reported_tier if report is not None else None,
+            "trending_tier": report.trending_tier if report is not None else None,
+            "confidence": report.confidence if report is not None else None,
+            "score": report.score if report is not None else None,
+            "total_reports": report.total_reports if report is not None else None,
+            "version_recommendation": None,
+            "status": result.proton_status,
+            "settings_changed": False,
+            "warning": result.proton_warning,
+            "protondb_url": f"https://www.protondb.com/app/{result.steam_app_id}",
+        },
+    }
+    if report is None:
+        proton_summary = f"ProtonDB unavailable (AppID {result.steam_app_id})"
+    else:
+        report_label = "report" if report.total_reports == 1 else "reports"
+        proton_summary = (
+            f"ProtonDB {report.tier} (score {report.score:.2f}, "
+            f"confidence {report.confidence}, {report.total_reports} {report_label}; "
+            f"AppID {report.app_id})"
+        )
+    human_message = (
+        f"{result.shortcut_name}: artwork {result.artwork_status}; {proton_summary}; "
+        f"Proton settings unchanged ({result.proton_warning})"
+    )
+    if result.artwork_warning:
+        human_message += f"; artwork note: {result.artwork_warning}"
+    _emit(payload, arguments.json, human_message)
+    incomplete_artwork = bool(result.artwork_failed_paths) or result.artwork_status in {
+        "partially_installed",
+        "conflict",
+        "unavailable",
+    }
+    return 1 if incomplete_artwork else 0
+
+
+def _run_artwork(arguments: argparse.Namespace) -> int:
     keyword_arguments = {
         "steamgriddb_game_id": arguments.steamgriddb_id,
         "shortcut_id": arguments.shortcut_id,
         "steam_root": arguments.steam_root,
         "steam_id": arguments.steam_id,
     }
+    installed_slots: tuple[Path, ...] = ()
+    exit_code = 0
     if arguments.dry_run:
         preview = api.preview_steamgriddb_artwork(**keyword_arguments)
         payload: dict[str, Any] = {
@@ -337,14 +427,43 @@ def _run_artwork(arguments: argparse.Namespace) -> None:
             "artwork_id": result.artwork_id,
             "grid_dir": str(result.grid_dir),
             "paths": {
-                "portrait": str(result.portrait_path),
-                "hero": str(result.hero_path),
-                "logo": str(result.logo_path),
+                "portrait": str(result.portrait_path) if result.portrait_path else None,
+                "hero": str(result.hero_path) if result.hero_path else None,
+                "logo": str(result.logo_path) if result.logo_path else None,
             },
             "backup_paths": [str(path) for path in result.backup_paths],
+            "conflicting_paths": [str(path) for path in result.conflicting_paths],
+            "failed_paths": [str(path) for path in result.failed_paths],
+            "warning": result.warning,
         }
-        human_message = f"Artwork installed: shortcut {result.shortcut_id}"
+        installed_slots = tuple(
+            path
+            for path in (result.portrait_path, result.hero_path, result.logo_path)
+            if path is not None
+        )
+        if installed_slots and (result.conflicting_paths or result.failed_paths):
+            exit_code = 1
+            human_message = (
+                f"Artwork partially installed for shortcut {result.shortcut_id} "
+                f"({len(installed_slots)} slot(s))"
+            )
+        elif installed_slots:
+            human_message = f"Artwork installed: shortcut {result.shortcut_id}"
+        elif result.conflicting_paths:
+            exit_code = 2
+            human_message = (
+                f"No artwork installed for shortcut {result.shortcut_id}; "
+                "existing artwork slots were preserved"
+            )
+        else:
+            exit_code = 2
+            human_message = (
+                f"No artwork installed for shortcut {result.shortcut_id}"
+            )
+        if result.warning:
+            human_message += f"; {result.warning}"
     _emit(payload, arguments.json, human_message)
+    return exit_code
 
 
 def _run_add(arguments: argparse.Namespace) -> None:

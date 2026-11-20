@@ -4,7 +4,14 @@ import pytest
 
 from steam_shortcuts.errors import InvalidExecutable, ShortcutConflict
 from steam_shortcuts.models import ShortcutRequest
-from steam_shortcuts.service import plan_shortcut_addition, shortcut_app_id, shortcut_artwork_id
+from steam_shortcuts.service import (
+    plan_shortcut_addition,
+    run_game_url,
+    shortcut_app_id,
+    shortcut_artwork_id,
+    shortcut_big_picture_artwork_id,
+    shortcut_grid_artwork_id,
+)
 
 
 def _request(executable: Path, **overrides: object) -> ShortcutRequest:
@@ -17,8 +24,14 @@ def test_shortcut_app_id_matches_steam_crc32_scheme() -> None:
     assert shortcut_app_id('"C:\\Games\\Game.exe"', "Game") == 3_516_482_161
 
 
-def test_shortcut_artwork_id_matches_the_steam_run_game_identifier() -> None:
-    assert shortcut_artwork_id(3_516_482_161) == 15_103_175_878_495_961_088
+def test_normal_grid_art_uses_unsigned_short_id_while_run_game_uses_big_picture_id() -> None:
+    short_id = 3_516_482_161
+    big_picture_id = 15_103_175_878_495_961_088
+
+    assert shortcut_grid_artwork_id(short_id) == short_id
+    assert shortcut_big_picture_artwork_id(short_id) == big_picture_id
+    assert shortcut_artwork_id(short_id) == big_picture_id
+    assert run_game_url(short_id) == f"steam://rungameid/{big_picture_id}"
 
 
 def test_plan_builds_steam_compatible_shortcut_fields(tmp_path: Path) -> None:

@@ -42,4 +42,6 @@ jobs:
           python -m venv .tmp-verify
           .tmp-verify/bin/python -m pip install dist/*.whl
           .tmp-verify/bin/steam-shortcuts --help
-          .tmp-verify/bin/python -c "from steam_shortcuts import add_shortcut; assert callable(add_shortcut)"
+          .tmp-verify/bin/steam-shortcuts enrich-game-data --help
+          .tmp-verify/bin/steam-shortcuts artwork --help
+          .tmp-verify/bin/python -c "from steam_shortcuts import add_shortcut, enrich_game_data; assert callable(add_shortcut) and callable(enrich_game_data)"

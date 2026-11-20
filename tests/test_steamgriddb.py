@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from http.client import IncompleteRead
 from urllib.request import Request
 
 import pytest
 
-from steam_shortcuts.errors import SteamGridDbApiKeyMissing
+from steam_shortcuts.errors import SteamGridDbApiKeyMissing, SteamGridDbRequestFailed
 from steam_shortcuts.steamgriddb import (
     SteamGridDbClient,
     search_steamgriddb_games,
@@ -94,11 +95,28 @@ def test_steamgriddb_client_downloads_asset_without_sending_api_key_to_the_cdn()
 
     def transport(request: Request) -> bytes:
         requests.append(request)
-        return b"image-bytes"
+        return b"\xff\xd8\xffimage-bytes"
 
     content = SteamGridDbClient("secret", transport=transport).download_asset(
         "https://cdn.example/game-art.jpg"
     )
 
-    assert content == b"image-bytes"
+    assert content == b"\xff\xd8\xffimage-bytes"
     assert requests[0].get_header("Authorization") is None
+
+
+def test_steamgriddb_client_rejects_non_image_asset_content() -> None:
+    client = SteamGridDbClient("secret", transport=lambda _: b"<html>error</html>")
+
+    with pytest.raises(SteamGridDbRequestFailed, match="not a valid JPEG image"):
+        client.download_asset("https://cdn.example/game-art.jpg")
+
+
+def test_steamgriddb_client_wraps_incomplete_asset_response() -> None:
+    def transport(_request: Request) -> bytes:
+        raise IncompleteRead(b"partial", 12)
+
+    client = SteamGridDbClient("secret", transport=transport)
+
+    with pytest.raises(SteamGridDbRequestFailed, match="incomplete HTTP response"):
+        client.download_asset("https://cdn.example/game-art.jpg")

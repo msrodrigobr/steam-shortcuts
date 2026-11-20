@@ -113,7 +113,7 @@ Run this on the machine and local user account whose Steam library will receive 
 1. Complete one direct or archive acceptance shortcut creation and retain its `shortcut_id`.
 2. Fully exit Steam in every mode.
 3. Run `steam-shortcuts configure-steamgriddb` in an interactive shell and enter a personal SteamGridDB key at the hidden prompt. Confirm the reported per-user credential file exists with mode `0600` on Linux/macOS; never place the key in a command argument, project file, or test evidence.
-4. Record the current contents of `userdata/<profile-id>/config/grid/` for the shortcut's 64-bit artwork ID, if any. Do not use an existing game with artwork you care about as the disposable test.
+4. Record the current contents of `userdata/<profile-id>/config/grid/` for the shortcut's 32-bit `appid`, if any. Steam's 64-bit run-game ID is not the normal library-grid artwork ID. Do not use an existing game with artwork you care about as the disposable test.
 
 ### Procedure
 
@@ -162,6 +162,29 @@ Run this on the machine and local user account whose Steam library will receive 
    ```
 
 3. Expected: output contains ProtonDB tier evidence, the matching AppID, a ProtonDB URL, `proton_tool_recommendation: null`, and an explanation that no version was selected. Confirm no `shortcuts.vdf`, `localconfig.vdf`, or `grid` file timestamps changed.
+
+## One-command game enrichment acceptance
+
+1. Use an existing, uniquely named non-Steam shortcut whose exact name matches a Steam Store game. Fully exit Steam and record the shortcut's `shortcuts.vdf`, `localconfig.vdf`, and grid-directory state.
+2. Preview the operation:
+
+   ```text
+   steam-shortcuts enrich-game-data "Toy Shire" --dry-run --json
+   ```
+
+   Expected: exact local shortcut and Steam Store match, Steam AppID, available official Steam portrait/hero/logo paths, ProtonDB evidence/status, and `settings_changed: false`. Confirm the command does not download or write grid images and does not change either VDF.
+
+3. Apply artwork:
+
+   ```text
+   steam-shortcuts enrich-game-data "Toy Shire" --json
+   ```
+
+   Expected: available official Steam library images are written under the selected profile's `config/grid/`. Existing slots are preserved individually across `.jpg`, `.jpeg`, and `.png` extensions while missing slots are filled. `--overwrite-artwork` backs up and replaces a same-format file; alternate-format variants are retained and reported as conflicts, never deleted. This Steam artwork path needs no SteamGridDB API key.
+
+4. ProtonDB summaries do not identify a specific Proton tool/version. Expected: report the compatibility evidence; if reports are missing or confidence is weak, include a warning. In all cases where there is no exact version recommendation, `settings_changed` remains false and `localconfig.vdf` is byte-for-byte unchanged. A missing ProtonDB report must not prevent available artwork from being installed.
+
+5. Start Steam and visually verify the portrait, hero, and logo. Confirm the non-Steam shortcut remains present and launches as before.
 
 ## Failure handling
 

@@ -9,6 +9,7 @@ from steam_shortcuts.models import (
     ArtworkInstallResult,
     ExecutableMetadata,
     ExecutableTitleCandidate,
+    GameEnrichmentResult,
     ProtonDbReport,
     SteamGridDbArtwork,
     SteamGridDbGame,
@@ -419,12 +420,13 @@ def test_cli_artwork_installs_only_after_dry_run_is_omitted(
     grid_dir = tmp_path / "grid"
     result = ArtworkInstallResult(
         shortcut_id=42,
-        artwork_id=180_422_180_864,
+        artwork_id=42,
         grid_dir=grid_dir,
-        portrait_path=grid_dir / "42p.jpg",
+        portrait_path=None,
         hero_path=grid_dir / "42_hero.jpg",
         logo_path=grid_dir / "42_logo.png",
         backup_paths=(),
+        conflicting_paths=(grid_dir / "42p.png",),
     )
     monkeypatch.setattr(api, "install_steamgriddb_artwork", lambda **_: result)
 
@@ -439,13 +441,42 @@ def test_cli_artwork_installs_only_after_dry_run_is_omitted(
                 "--json",
             ]
         )
-        == 0
+        == 1
     )
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["dry_run"] is False
-    assert payload["artwork_id"] == 180_422_180_864
+    assert payload["artwork_id"] == 42
+    assert payload["paths"]["portrait"] is None
+    assert payload["conflicting_paths"] == [str(grid_dir / "42p.png")]
     assert payload["backup_paths"] == []
+
+
+def test_cli_does_not_claim_success_when_no_artwork_slot_was_installed(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    result = ArtworkInstallResult(
+        shortcut_id=42,
+        artwork_id=42,
+        grid_dir=tmp_path / "grid",
+        portrait_path=None,
+        hero_path=None,
+        logo_path=None,
+        backup_paths=(),
+        failed_paths=(
+            tmp_path / "grid" / "42p.jpg",
+            tmp_path / "grid" / "42_hero.jpg",
+            tmp_path / "grid" / "42_logo.png",
+        ),
+        warning="All image downloads failed.",
+    )
+    monkeypatch.setattr(api, "install_steamgriddb_artwork", lambda **_: result)
+
+    assert main(["artwork", "--steamgriddb-id", "42", "--shortcut-id", "42"]) == 2
+
+    output = capsys.readouterr().out
+    assert "No artwork installed" in output
+    assert "Artwork installed:" not in output
 
 
 def test_cli_store_search_uses_the_best_local_title_candidate(
@@ -514,3 +545,82 @@ def test_cli_configure_steamgriddb_reports_only_the_credential_path(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload == {"credential_path": str(credential_path), "status": "saved"}
+
+
+def test_cli_enrich_game_data_reports_artwork_and_proton_without_applying_a_tool(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    result = GameEnrichmentResult(
+        shortcut_name="Toy Shire",
+        shortcut_id=12,
+        profile_id="123",
+        steam_app_id=2361460,
+        steam_game_name="Toy Shire",
+        proton_report=ProtonDbReport(
+            app_id=2361460,
+            tier="pending",
+            best_reported_tier="borked",
+            trending_tier="pending",
+            confidence="inadequate",
+            score=0.0,
+            total_reports=1,
+        ),
+        proton_status="unchanged_no_version_recommendation",
+        proton_warning="no version recommendation; settings unchanged",
+        artwork_status="planned",
+        artwork_paths=(("portrait", tmp_path / "grid" / "12p.jpg"),),
+        conflicting_paths=(),
+        artwork_warning=None,
+        artwork_result=None,
+    )
+    monkeypatch.setattr(api, "enrich_game_data", lambda **_: result, raising=False)
+
+    assert main(["enrich-game-data", "Toy Shire", "--dry-run", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["steam_game"]["app_id"] == 2361460
+    assert payload["shortcut_id"] == 12
+    assert payload["artwork"]["status"] == "planned"
+    assert payload["proton"]["status"] == "unchanged_no_version_recommendation"
+    assert payload["proton"]["version_recommendation"] is None
+
+    assert main(["enrich-game-data", "Toy Shire"]) == 0
+    human_output = capsys.readouterr().out
+    assert "ProtonDB pending" in human_output
+    assert "score 0.00" in human_output
+    assert "confidence inadequate" in human_output
+    assert "1 report" in human_output
+    assert "AppID 2361460" in human_output
+
+
+def test_cli_enrich_game_data_returns_nonzero_when_all_art_downloads_fail(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    failed_paths = (
+        tmp_path / "grid" / "12p.jpg",
+        tmp_path / "grid" / "12_hero.jpg",
+        tmp_path / "grid" / "12_logo.png",
+    )
+    result = GameEnrichmentResult(
+        shortcut_name="Toy Shire",
+        shortcut_id=12,
+        profile_id="123",
+        steam_app_id=2361460,
+        steam_game_name="Toy Shire",
+        proton_report=None,
+        proton_status="unavailable",
+        proton_warning="ProtonDB unavailable",
+        artwork_status="preserved_existing_download_failed",
+        artwork_paths=(),
+        conflicting_paths=failed_paths,
+        artwork_warning="Steam artwork downloads failed.",
+        artwork_result=None,
+        artwork_failed_paths=failed_paths,
+    )
+    monkeypatch.setattr(api, "enrich_game_data", lambda **_: result, raising=False)
+
+    assert main(["enrich-game-data", "Toy Shire", "--json"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artwork"]["status"] == "preserved_existing_download_failed"
+    assert len(payload["artwork"]["failed_paths"]) == 3

@@ -143,10 +143,33 @@ class ArtworkInstallResult:
     shortcut_id: int
     artwork_id: int
     grid_dir: Path
-    portrait_path: Path
-    hero_path: Path
-    logo_path: Path
+    portrait_path: Path | None
+    hero_path: Path | None
+    logo_path: Path | None
     backup_paths: tuple[Path, ...]
+    conflicting_paths: tuple[Path, ...] = ()
+    failed_paths: tuple[Path, ...] = ()
+    warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GameEnrichmentResult:
+    """Steam artwork and ProtonDB evidence resolved for an existing shortcut."""
+
+    shortcut_name: str
+    shortcut_id: int
+    profile_id: str
+    steam_app_id: int
+    steam_game_name: str
+    proton_report: ProtonDbReport | None
+    proton_status: str
+    proton_warning: str
+    artwork_status: str
+    artwork_paths: tuple[tuple[str, Path], ...]
+    conflicting_paths: tuple[Path, ...]
+    artwork_warning: str | None
+    artwork_result: ArtworkInstallResult | None
+    artwork_failed_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +179,16 @@ class SteamStoreGame:
     app_id: int
     name: str
     kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class SteamLibraryArtwork:
+    """Official Steam grid-art URLs for one Store AppID."""
+
+    app_id: int
+    portrait_url: str | None
+    hero_url: str | None
+    logo_url: str | None
 
 
 @dataclass(frozen=True, slots=True)

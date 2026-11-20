@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+from http.client import IncompleteRead
 from urllib.request import Request
 
+import pytest
+
+from steam_shortcuts.errors import SteamStoreRequestFailed
 from steam_shortcuts.steam_store import search_steam_store_games
 
 
@@ -30,3 +34,11 @@ def test_search_steam_store_games_returns_explicit_app_id_candidates() -> None:
     assert "term=Decktamer+Deluxe" in requests[0].full_url
     assert "cc=us" in requests[0].full_url
     assert "l=en" in requests[0].full_url
+
+
+def test_search_steam_store_games_wraps_incomplete_http_body() -> None:
+    def transport(_request: Request) -> bytes:
+        raise IncompleteRead(b"partial", 12)
+
+    with pytest.raises(SteamStoreRequestFailed, match="incomplete HTTP response"):
+        search_steam_store_games("Toy Shire", transport=transport)

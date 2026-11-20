@@ -140,7 +140,7 @@ steam-shortcuts artwork \
   --dry-run --json
 ```
 
-After reviewing the preview, rerun the command without `--dry-run` to download and install a portrait cover, hero, and logo beneath `userdata/<steam-id>/config/grid/`. The artwork filenames use Steam's 64-bit shortcut artwork identifier, not merely the 32-bit `appid`, because Steam enjoys having two IDs for one shortcut. Existing artwork is preserved by default; `--overwrite` creates sibling backups before replacing it.
+After reviewing the preview, rerun the command without `--dry-run` to download and install a portrait cover, hero, and logo beneath `userdata/<steam-id>/config/grid/`. Normal library-grid artwork filenames use the shortcut's 32-bit `appid`; the 64-bit value is for the Big Picture/run-game identifier. Existing artwork slots are preserved individually (including `.jpg`, `.jpeg`, or `.png` variants) while missing slots are filled. Slots are installed independently, so a conflict or write failure on one image does not block the others. `--overwrite` backs up and replaces an existing file at the selected format; alternate-format variants are retained and reported as conflicts rather than deleted.
 
 ## Proton compatibility report
 
@@ -154,6 +154,24 @@ steam-shortcuts proton-report --steam-appid <selected-app-id> --json
 `proton-report` is read-only. It returns ProtonDB's current tier, best reported tier, trending tier, confidence, score, report count, and a link to the reports. ProtonDB's public summary does not identify a canonical tested Proton or GE-Proton version, so the tool explicitly returns no version recommendation and never changes Steam compatibility settings. It is evidence for a human decision, not a very confident dice roll.
 
 After Steam restarts, configure a Proton compatibility version in Steam if the selected executable is a Windows game. Registering a Windows executable does not magically make it a Linux game. Shocking, I know.
+
+## One-command enrichment for an existing shortcut
+
+After adding a game with `add`, use its exact library shortcut name to fetch official Steam library artwork and ProtonDB compatibility data in one command. This uses public Steam Store endpoints and does not require a Steam or SteamGridDB API key:
+
+```text
+steam-shortcuts enrich-game-data "Toy Shire" --dry-run --json
+```
+
+Review the resolved Steam AppID and artwork paths. With Steam fully closed, run it again to install the available portrait, hero, and logo:
+
+```text
+steam-shortcuts enrich-game-data "Toy Shire" --json
+```
+
+The command only enriches an existing non-Steam shortcut; it does not replace `add`. It requires a unique exact local shortcut name and a unique exact Steam Store game match. Existing art is preserved slot-by-slot, and available missing slots are filled. Files with `.jpg`, `.jpeg`, or `.png` extensions count as the same slot. Pass `--overwrite-artwork` to back up and replace existing slots.
+
+ProtonDB's summary reports compatibility tiers and evidence, not a specific Proton/GE-Proton version. Therefore this command reports the summary and warns when evidence is missing or weak, but it does not change Steam compatibility settings or `localconfig.vdf`. Existing Proton settings remain untouched. `proton-report` remains available for a standalone read-only report.
 
 ## Python API
 

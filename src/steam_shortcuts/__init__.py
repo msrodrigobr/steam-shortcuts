@@ -3,6 +3,7 @@
 from .api import (
     add_shortcut,
     add_shortcut_from_archive,
+    enrich_game_data,
     install_steamgriddb_artwork,
     preview_steamgriddb_artwork,
 )
@@ -23,16 +24,19 @@ from .models import (
     ArchiveInspection,
     ExecutableMetadata,
     ExecutableTitleCandidate,
+    GameEnrichmentResult,
     ShortcutRequest,
     ShortcutResult,
+    SteamLibraryArtwork,
     SteamProfile,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "add_shortcut",
     "add_shortcut_from_archive",
+    "enrich_game_data",
     "install_steamgriddb_artwork",
     "preview_steamgriddb_artwork",
     "read_executable_metadata",
@@ -40,6 +44,7 @@ __all__ = [
     "ArchiveInspection",
     "ExecutableMetadata",
     "ExecutableTitleCandidate",
+    "GameEnrichmentResult",
     "InvalidArchive",
     "InvalidShortcutFile",
     "InvalidExecutable",
@@ -51,6 +56,7 @@ __all__ = [
     "ShortcutResult",
     "SteamNotFound",
     "SteamProfile",
+    "SteamLibraryArtwork",
     "SteamRunning",
     "__version__",
 ]

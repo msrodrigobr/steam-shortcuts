@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -52,6 +53,8 @@ def _request_bytes(request: Request, transport: Transport) -> bytes:
         raise SteamStoreRequestFailed(f"HTTP {error.code}") from error
     except URLError as error:
         raise SteamStoreRequestFailed(str(error.reason)) from error
+    except HTTPException as error:
+        raise SteamStoreRequestFailed(f"incomplete HTTP response: {error}") from error
     except OSError as error:
         raise SteamStoreRequestFailed(str(error)) from error
     if not content:

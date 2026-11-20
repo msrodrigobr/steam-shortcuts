@@ -59,9 +59,9 @@ def test_preview_steamgriddb_artwork_verifies_shortcut_and_reports_target_paths(
     assert preview.profile.profile_id == "123"
     assert preview.artwork.game_id == 42
     assert preview.conflicting_paths == ()
-    assert preview.portrait_path.name == "180422180864p.jpg"
-    assert preview.hero_path.name == "180422180864_hero.jpg"
-    assert preview.logo_path.name == "180422180864_logo.png"
+    assert preview.portrait_path.name == "42p.jpg"
+    assert preview.hero_path.name == "42_hero.jpg"
+    assert preview.logo_path.name == "42_logo.png"
 
 
 def test_install_steamgriddb_artwork_writes_selected_assets_for_verified_shortcut(

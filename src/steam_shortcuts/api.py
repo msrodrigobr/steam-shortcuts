@@ -7,25 +7,38 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .archive import extract_archive, inspect_archive
-from .artwork import install_artwork
+from .artwork import artwork_targets, find_existing_artwork_paths, install_artwork
 from .discovery import discover_steam_root, list_profile_ids, select_profile
-from .errors import InvalidArchive, ShortcutNotFound
+from .errors import (
+    ArtworkAlreadyExists,
+    ArtworkWriteFailed,
+    InvalidArchive,
+    ProtonDbRequestFailed,
+    ShortcutNameAmbiguous,
+    ShortcutNameNotFound,
+    ShortcutNotFound,
+    SteamStoreRequestFailed,
+)
 from .models import (
     ArchiveInspection,
     ArtworkInstallResult,
+    GameEnrichmentResult,
+    ProtonDbReport,
     ShortcutRequest,
     ShortcutResult,
     SteamGridDbArtwork,
     SteamProfile,
 )
 from .process import ensure_steam_not_running
+from .protondb import get_protondb_report
 from .service import (
     ShortcutAdditionPlan,
     add_shortcut_to_profile,
     plan_shortcut_addition,
-    shortcut_artwork_id,
     to_unsigned_int32,
 )
+from .steam_assets import download_steam_asset, get_steam_library_artwork
+from .steam_store import search_steam_store_games
 from .steamgriddb import (
     SteamGridDbArtworkClient,
     steamgriddb_client_from_environment,
@@ -116,6 +129,269 @@ def list_shortcuts(
         if isinstance(entry, dict)
     )
     return profile, listings
+
+
+def enrich_game_data(
+    *,
+    name: str,
+    steam_root: Path | None = None,
+    steam_id: str | None = None,
+    dry_run: bool = False,
+    overwrite_artwork: bool = False,
+) -> GameEnrichmentResult:
+    """Enrich one uniquely named existing shortcut with official Steam art and ProtonDB data.
+
+    Steam's public app-info endpoint supplies official library images without an
+    API key. ProtonDB summaries do not identify an exact Proton tool/version, so
+    this operation never writes compatibility settings and explains that choice.
+    """
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("shortcut name must not be blank")
+
+    installation = detect_steam(steam_root)
+    ensure_steam_not_running()
+    profile, shortcuts = list_shortcuts(
+        steam_root=installation.steam_root,
+        steam_id=steam_id,
+    )
+    matches = tuple(
+        shortcut
+        for shortcut in shortcuts
+        if shortcut.name.strip().casefold() == normalized_name.casefold()
+    )
+    if not matches:
+        raise ShortcutNameNotFound(normalized_name, profile.profile_id)
+    if len(matches) > 1:
+        ids = tuple(match.app_id for match in matches if match.app_id is not None)
+        raise ShortcutNameAmbiguous(normalized_name, ids)
+    shortcut = next(iter(matches))
+    if shortcut.app_id is None:
+        raise SteamStoreRequestFailed(
+            f"Shortcut '{normalized_name}' has no valid Steam shortcut ID"
+        )
+
+    store_candidates = search_steam_store_games(normalized_name)
+    exact_games = tuple(
+        game
+        for game in store_candidates
+        if (
+            game.kind.casefold() == "app"
+            and game.name.strip().casefold() == normalized_name.casefold()
+        )
+    )
+    if len(exact_games) != 1:
+        names = ", ".join(
+            f"{game.name} ({game.kind}, AppID {game.app_id})" for game in store_candidates
+        ) or "none"
+        raise SteamStoreRequestFailed(
+            f"Expected one exact Steam Store game for '{normalized_name}'; candidates: {names}"
+        )
+    steam_game = exact_games[0]
+
+    proton_report: ProtonDbReport | None = None
+    proton_status = "unavailable"
+    proton_warning = (
+        "No ProtonDB compatibility summary was available; no Proton setting was changed."
+    )
+    try:
+        proton_report = get_protondb_report(steam_game.app_id)
+    except ProtonDbRequestFailed as error:
+        proton_report = None
+        proton_status = "unavailable"
+        proton_warning = (
+            f"No ProtonDB compatibility summary was available ({error}); "
+            "no Proton setting was changed."
+        )
+    if proton_report is not None:
+        proton_status = "unchanged_no_version_recommendation"
+        if proton_report.confidence.casefold() in {"inadequate", "low"}:
+            proton_warning = (
+                f"ProtonDB evidence is weak ({proton_report.confidence} confidence, "
+                f"{proton_report.total_reports} reports); no exact Proton version "
+                "recommendation is available. Existing Steam compatibility settings "
+                "were left unchanged."
+            )
+        else:
+            proton_warning = (
+                "ProtonDB's summary does not identify an exact Proton tool/version; "
+                "existing Steam compatibility settings were left unchanged."
+            )
+
+    artwork_paths: tuple[tuple[str, Path], ...] = ()
+    conflicting_paths: tuple[Path, ...] = ()
+    artwork_warning: str | None = None
+    artwork_result: ArtworkInstallResult | None = None
+    try:
+        artwork = get_steam_library_artwork(steam_game.app_id)
+    except SteamStoreRequestFailed as error:
+        artwork_status = "unavailable"
+        artwork_warning = str(error)
+    else:
+        grid_dir = profile.shortcuts_path.parent / "grid"
+        all_paths = artwork_targets(grid_dir, shortcut.app_id, artwork)
+        artwork_paths = tuple(
+            (kind, path)
+            for kind, path, url in all_paths
+            if isinstance(url, str) and url
+        )
+        conflicting_paths = find_existing_artwork_paths(path for _, path in artwork_paths)
+        requested_stems = {path.with_suffix("") for _, path in artwork_paths}
+        existing_stems = {path.with_suffix("") for path in conflicting_paths}
+        all_slots_existing = bool(requested_stems) and requested_stems <= existing_stems
+        if not artwork_paths:
+            artwork_status = "unavailable"
+            artwork_warning = "Steam did not expose compatible portrait, hero, or logo assets."
+        elif dry_run:
+            artwork_status = (
+                "planned_overwrite"
+                if conflicting_paths and overwrite_artwork
+                else "preserved_existing"
+                if all_slots_existing
+                else "planned_partial"
+                if conflicting_paths
+                else "planned"
+            )
+            if all_slots_existing and not overwrite_artwork:
+                artwork_warning = (
+                    "All artwork slots already have images and no files would be changed. "
+                    "Pass --overwrite-artwork to replace same-format files."
+                )
+            elif conflicting_paths and not overwrite_artwork:
+                artwork_warning = (
+                    "Existing artwork slots will be preserved; missing slots will be filled. "
+                    "Pass --overwrite-artwork to replace same-format files."
+                )
+            if conflicting_paths and not overwrite_artwork:
+                artwork_paths = tuple(
+                    (kind, path)
+                    for kind, path in artwork_paths
+                    if path.with_suffix("") not in existing_stems
+                )
+        else:
+            try:
+                artwork_result = install_artwork(
+                    grid_dir=grid_dir,
+                    shortcut_id=shortcut.app_id,
+                    artwork=artwork,
+                    downloader=download_steam_asset,
+                    overwrite=overwrite_artwork,
+                    allow_missing_assets=True,
+                    before_commit=ensure_steam_not_running,
+                )
+            except ArtworkAlreadyExists as error:
+                artwork_status = "preserved_existing"
+                artwork_paths = ()
+                conflicting_paths = error.paths
+                artwork_warning = (
+                    "All available artwork slots already have images, so they were preserved. "
+                    "Pass --overwrite-artwork to replace them."
+                )
+            except SteamStoreRequestFailed as error:
+                artwork_status = "unavailable"
+                artwork_paths = ()
+                artwork_warning = (
+                    "Steam artwork download failed without changing grid files "
+                    f"({error})."
+                )
+            except ArtworkWriteFailed as error:
+                if error.reason != "all requested artwork assets were unavailable":
+                    raise
+                artwork_status = "unavailable"
+                artwork_paths = ()
+                artwork_warning = str(error)
+            else:
+                conflicting_paths = artwork_result.conflicting_paths
+                installed_paths = (
+                    ("portrait", artwork_result.portrait_path),
+                    ("hero", artwork_result.hero_path),
+                    ("logo", artwork_result.logo_path),
+                )
+                artwork_paths = tuple(
+                    (kind, path) for kind, path in installed_paths if path is not None
+                )
+                conflict_stems = {path.with_suffix("") for path in conflicting_paths}
+                if artwork_paths:
+                    artwork_status = (
+                        "partially_installed"
+                        if conflicting_paths or artwork_result.failed_paths
+                        else "installed"
+                    )
+                elif artwork_result.failed_paths:
+                    artwork_status = (
+                        "preserved_existing_download_failed"
+                        if conflicting_paths
+                        else "unavailable"
+                    )
+                elif requested_stems and requested_stems <= conflict_stems:
+                    artwork_status = "preserved_existing"
+                elif conflicting_paths:
+                    artwork_status = "conflict"
+                else:
+                    artwork_status = "unavailable"
+                if conflicting_paths:
+                    if artwork_status == "preserved_existing_download_failed":
+                        artwork_warning = (
+                            "Artwork downloads failed; existing images were left untouched. "
+                            "Retry later to fill the missing slots."
+                        )
+                    elif artwork_status == "preserved_existing":
+                        if overwrite_artwork:
+                            artwork_warning = (
+                                "An overwrite conflict prevented updates; existing artwork "
+                                "was preserved."
+                            )
+                        else:
+                            artwork_warning = (
+                                "All available artwork slots already had images, so they were "
+                                "preserved. Pass --overwrite-artwork to replace them."
+                            )
+                    else:
+                        artwork_warning = (
+                            "Some artwork slots conflicted with existing files; available "
+                            "non-conflicting slots were installed."
+                        )
+                if artwork_result.warning:
+                    artwork_warning = (
+                        f"{artwork_warning} {artwork_result.warning}"
+                        if artwork_warning
+                        else artwork_result.warning
+                    )
+                if artwork_result.failed_paths:
+                    failed_warning = (
+                        "Some artwork slots could not be downloaded or written; see failed_paths."
+                    )
+                    artwork_warning = (
+                        f"{artwork_warning} {failed_warning}"
+                        if artwork_warning
+                        else failed_warning
+                    )
+                if len(artwork_paths) < 3 and not artwork_result.failed_paths:
+                    missing_warning = (
+                        "Some Steam library artwork assets were unavailable; "
+                        "the available images were installed."
+                    )
+                    if artwork_warning is None:
+                        artwork_warning = missing_warning
+
+    return GameEnrichmentResult(
+        shortcut_name=shortcut.name,
+        shortcut_id=shortcut.app_id,
+        profile_id=profile.profile_id,
+        steam_app_id=steam_game.app_id,
+        steam_game_name=steam_game.name,
+        proton_report=proton_report,
+        proton_status=proton_status,
+        proton_warning=proton_warning,
+        artwork_status=artwork_status,
+        artwork_paths=artwork_paths,
+        conflicting_paths=conflicting_paths,
+        artwork_warning=artwork_warning,
+        artwork_result=artwork_result,
+        artwork_failed_paths=(
+            artwork_result.failed_paths if artwork_result is not None else ()
+        ),
+    )
 
 
 def preview_shortcut(
@@ -309,6 +585,7 @@ def install_steamgriddb_artwork(
         artwork=preview.artwork,
         downloader=resolved_client.download_asset,
         overwrite=overwrite,
+        before_commit=ensure_steam_not_running,
     )
 
 
@@ -327,10 +604,12 @@ def _resolve_steamgriddb_artwork(
     resolved_client = client if client is not None else steamgriddb_client_from_environment()
     artwork = resolved_client.get_artwork(steamgriddb_game_id)
     grid_dir = profile.shortcuts_path.parent / "grid"
-    artwork_id = shortcut_artwork_id(shortcut_id)
-    portrait_path = grid_dir / f"{artwork_id}p.jpg"
-    hero_path = grid_dir / f"{artwork_id}_hero.jpg"
-    logo_path = grid_dir / f"{artwork_id}_logo.png"
+    paths_by_kind = {
+        kind: path for kind, path, _ in artwork_targets(grid_dir, shortcut_id, artwork)
+    }
+    portrait_path = paths_by_kind["portrait"]
+    hero_path = paths_by_kind["hero"]
+    logo_path = paths_by_kind["logo"]
     paths = (portrait_path, hero_path, logo_path)
     return (
         ArtworkPreview(
@@ -341,7 +620,7 @@ def _resolve_steamgriddb_artwork(
             portrait_path=portrait_path,
             hero_path=hero_path,
             logo_path=logo_path,
-            conflicting_paths=tuple(path for path in paths if path.exists() or path.is_symlink()),
+            conflicting_paths=find_existing_artwork_paths(paths),
         ),
         resolved_client,
     )

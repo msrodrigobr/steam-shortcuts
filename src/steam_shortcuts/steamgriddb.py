@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -132,10 +133,21 @@ class SteamGridDbClient:
             raise SteamGridDbRequestFailed(f"asset HTTP {error.code}") from error
         except URLError as error:
             raise SteamGridDbRequestFailed(f"asset {error.reason}") from error
+        except HTTPException as error:
+            raise SteamGridDbRequestFailed(f"incomplete HTTP response: {error}") from error
         except OSError as error:
             raise SteamGridDbRequestFailed(f"asset {error}") from error
         if not content:
             raise SteamGridDbRequestFailed("asset response was empty")
+        suffix = parsed.path.casefold()
+        if suffix.endswith((".jpg", ".jpeg")):
+            if not content.startswith(b"\xff\xd8\xff"):
+                raise SteamGridDbRequestFailed("asset response was not a valid JPEG image")
+        elif suffix.endswith(".png"):
+            if not content.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise SteamGridDbRequestFailed("asset response was not a valid PNG image")
+        else:
+            raise SteamGridDbRequestFailed("asset URL has an unsupported image format")
         return content
 
     def _best_asset_url(self, endpoint: str, query: Mapping[str, str], kind: str) -> str:
@@ -175,6 +187,8 @@ class SteamGridDbClient:
             raise SteamGridDbRequestFailed(f"HTTP {error.code}") from error
         except URLError as error:
             raise SteamGridDbRequestFailed(str(error.reason)) from error
+        except HTTPException as error:
+            raise SteamGridDbRequestFailed(f"incomplete HTTP response: {error}") from error
         except OSError as error:
             raise SteamGridDbRequestFailed(str(error)) from error
         try:
