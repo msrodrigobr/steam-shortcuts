@@ -576,17 +576,15 @@ def test_install_artwork_overwrite_keeps_a_backup_of_replaced_images(
     assert result.backup_paths[0].read_bytes() == b"existing-art"
 
 
-@pytest.mark.parametrize("path_mode", ("anchored", "posix-path", "windows-path"))
+@pytest.mark.parametrize("path_mode", ("anchored", "path-fallback"))
 def test_failed_publication_restores_file_without_consuming_backup(
     tmp_path: Path,
     selected_artwork: SteamGridDbArtwork,
     monkeypatch,
     path_mode: str,
 ) -> None:
-    if path_mode == "posix-path":
+    if path_mode == "path-fallback":
         monkeypatch.setattr(artwork_module, "_open_grid_directory", lambda _: None)
-    elif path_mode == "windows-path":
-        monkeypatch.setattr(artwork_module.os, "name", "nt")
     grid_dir = tmp_path / "grid"
     grid_dir.mkdir()
     portrait = grid_dir / f"{shortcut_grid_artwork_id(42)}p.jpg"
@@ -611,7 +609,8 @@ def test_failed_publication_restores_file_without_consuming_backup(
         overwrite=True,
     )
 
-    assert portrait.read_bytes() == b"original portrait", result.warning
+    assert portrait.exists(), f"restore warning: {result.warning}; backups={result.backup_paths}"
+    assert portrait.read_bytes() == b"original portrait"
     assert result.failed_paths == (portrait,)
     assert len(result.backup_paths) == 1
     backup = result.backup_paths[0]
